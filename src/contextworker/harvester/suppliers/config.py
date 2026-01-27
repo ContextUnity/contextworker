@@ -1,7 +1,7 @@
 """
 Supplier configuration loader for Harvester.
 
-Loads configs from projects/traverse/harvester/config/ (or custom path).
+Loads configs from PROJECT_DIR/harvester/config/ (or custom path).
 This module should be used ONLY by Worker, not Commerce.
 """
 
@@ -46,26 +46,32 @@ class HarvesterSettings(BaseModel):
 
 
 def get_project_dir() -> Path:
-    """Get Traverse project directory."""
-    project_dir = os.getenv("TRAVERSE_PROJECT_DIR")
+    """Get project directory from environment.
+    
+    Uses PROJECT_DIR env var, falling back to current directory.
+    """
+    project_dir = os.getenv("PROJECT_DIR")
     if project_dir:
         return Path(project_dir)
 
-    # Default: look relative to workspace
-    # Assuming we're in contextworker/src/contextworker/harvester/
-    workspace = Path(__file__).resolve().parents[5]
-    return workspace / "projects" / "traverse"
+    # Default: current working directory
+    return Path.cwd()
 
 
 def find_config_dir() -> Path:
-    """Find the harvester config directory."""
-    # 1. Environment variable
+    """Find the harvester config directory.
+    
+    Looks in order:
+    1. HARVESTER_CONFIG_DIR env var
+    2. {PROJECT_DIR}/harvester/config
+    """
+    # 1. Explicit environment variable
     if env_dir := os.getenv("HARVESTER_CONFIG_DIR"):
         p = Path(env_dir)
         if p.exists():
             return p
 
-    # 2. Traverse project config
+    # 2. Project directory config
     project_dir = get_project_dir()
     config_dir = project_dir / "harvester" / "config"
     if config_dir.exists():
@@ -73,7 +79,7 @@ def find_config_dir() -> Path:
 
     raise FileNotFoundError(
         "Harvester config directory not found. "
-        "Set TRAVERSE_PROJECT_DIR or HARVESTER_CONFIG_DIR"
+        "Set PROJECT_DIR or HARVESTER_CONFIG_DIR"
     )
 
 

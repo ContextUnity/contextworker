@@ -2,8 +2,8 @@
 Harvester CLI - Run product import for a project.
 
 Usage:
-    python -m contextworker.harvester.run --project traverse
-    python -m contextworker.harvester.run --project traverse --supplier vysota
+    python -m contextworker.harvester.run --project myproject
+    python -m contextworker.harvester.run --project myproject --supplier vysota
     python -m contextworker.harvester.run  # Uses DEFAULT_PROJECT from .env
 
 Environment Variables:

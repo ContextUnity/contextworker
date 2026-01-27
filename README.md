@@ -1,214 +1,129 @@
 # ContextWorker
 
-High-performance Temporal Worker for ContextUnity ecosystem.
+**Temporal Worker Infrastructure for ContextUnity**
 
-## Overview
-
-ContextWorker provides distributed, durable task orchestration using [Temporal](https://temporal.io/). It handles long-running workflows for data processing, content generation, and other asynchronous operations across the ContextUnity platform.
-
-## Features
-
-- **Durable Workflows**: Workflows survive process crashes and restarts
-- **Activity Retries**: Automatic retries with exponential backoff
-- **Distributed Execution**: Scale workers across multiple machines
-- **Observability**: Built-in monitoring and tracing with ContextCore logging
-- **Type Safety**: Full type annotations for all workflows and activities
-- **Centralized Logging**: Automatic trace_id propagation from ContextUnit
-
-## Architecture
-
-ContextWorker follows Temporal's workflow/activity pattern:
-
-- **Workflows**: Orchestrate business logic, define execution order, handle timeouts
-- **Activities**: Execute individual units of work (HTTP calls, DB operations, etc.)
-
-### Agent Architecture
-
-ContextWorker runs **Agent Daemons** - long-running processes that poll queues and execute tasks.
-
-**Registered Agents:**
-
-| Agent | Description | Mode |
-|-------|-------------|------|
-| `gardener` | Taxonomy classification via LLM | Polling |
-| `harvester` | Stock import workflows | Temporal |
-| `lexicon` | Content research & generation | Polling |
-
-### Temporal Workflows (Harvester)
-
-- `HarvesterImportWorkflow`: Imports vendor data through fetch → parse → stage pipeline
-
-### Activities
-
-**Basic Activities:**
-- `fetch_vendor_data`: Fetch raw data from vendor URLs
-- `parse_raw_payload`: Parse vendor payloads into structured items
-- `update_staging_buffer`: Insert/update items in staging database
-
-**Advanced Activities:**
-- `process_product_images`: Download, resize, and optimize product images
-- `generate_seo_content`: Generate SEO metadata using LLM
+ContextWorker provides the core infrastructure for running Temporal workflows. It does NOT contain business logic - modules are discovered from installed packages (e.g., ContextCommerce).
 
 ## Installation
 
 ```bash
+# Standalone (infrastructure only)
 pip install contextworker
-```
 
-Or with dependencies:
-
-```bash
-pip install contextworker[temporal]
+# With Commerce modules (full stack)
+pip install contextcommerce  # Includes contextworker
 ```
 
 ## Usage
 
-### Starting the Worker
+```bash
+# Run workers (discovers modules automatically)
+python -m contextworker
 
-```python
-from contextworker import main
-import asyncio
+# Run specific modules only
+python -m contextworker --modules harvester gardener
 
-asyncio.run(main())
+# With custom Temporal host
+python -m contextworker --temporal-host temporal.example.com:7233
 ```
 
-Or via command line:
+### Schedule Management
 
 ```bash
-python -m contextworker
+# Create default schedules for a tenant
+python -m contextworker.schedules create --tenant-id myproject
+
+# List all schedules
+python -m contextworker.schedules list
+
+# Pause/unpause a schedule
+python -m contextworker.schedules pause gardener-every-5min-myproject
+python -m contextworker.schedules unpause gardener-every-5min-myproject
 ```
 
-### Environment Variables
+## Architecture
 
-- `TEMPORAL_HOST`: Temporal server address (default: `localhost:7233`)
-- `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-- `SERVICE_NAME`: Service name for observability (default: `contextworker`)
-- `SERVICE_VERSION`: Service version
-- `OTEL_ENABLED`: Enable OpenTelemetry (true/false)
-- `OTEL_ENDPOINT`: OpenTelemetry collector endpoint
-
-### Running a Workflow
-
-```python
-from temporalio.client import Client
-from contextworker.workflows import HarvesterImportWorkflow
-
-async def import_vendor_data():
-    client = await Client.connect("localhost:7233")
-    result = await client.execute_workflow(
-        HarvesterImportWorkflow.run,
-        "https://vendor.com/data.xml",
-        id="import-123",
-        task_queue="harvester-tasks",
-    )
-    print(result)
-
-import asyncio
-asyncio.run(import_vendor_data())
 ```
+┌──────────────────────────────────────────────────────────────┐
+│                    ContextCommerce                            │
+│                                                               │
+│  modules/                                                     │
+│    harvester/   - Vendor data import                          │
+│    gardener/    - Product enrichment                          │
+│    sync/        - Channel sync (Horoshop, Prom)               │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+                            │
+                            │ depends on
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    ContextWorker                              │
+│                                                               │
+│  core/                                                        │
+│    registry.py  - Module discovery                            │
+│    worker.py    - Temporal worker factory                     │
+│                                                               │
+│  schedules.py   - Temporal schedule management                │
+│  __main__.py    - CLI entry point                             │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │   Temporal    │
+                    │   Server      │
+                    └───────────────┘
+```
+
+## Module Discovery
+
+Worker discovers modules by trying to import from known packages:
+
+1. `modules` (when running from Commerce directory)
+2. `contextcommerce.modules` (when pip installed)
+
+Modules register via `register_all(registry)` function.
+
+## Docker Compose
+
+```yaml
+services:
+  django:
+    image: commerce:latest
+    command: python manage.py runserver 0.0.0.0:8000
+    
+  worker:
+    image: commerce:latest  # Same image!
+    command: python -m contextworker
+    deploy:
+      replicas: 3  # Scale workers independently
+      
+  temporal:
+    image: temporalio/auto-setup:latest
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TEMPORAL_HOST` | Temporal server address | `localhost:7233` |
+| `DATABASE_URL` | PostgreSQL connection | - |
+| `PROJECT_DIR` | Project config directory | `.` |
+| `TENANT_ID` | Default tenant ID | `default` |
 
 ## Development
 
-### Prerequisites
-
-- Python 3.12+
-- Temporal server (local or remote)
-- `temporalio` package
-
-### Running Tests
-
 ```bash
-pytest tests/
-```
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-### Type Checking
+# Run tests
+pytest
 
-```bash
-mypy src/contextworker
-```
-
-## Logging
-
-ContextWorker uses ContextCore's centralized logging system. Logging is automatically configured in `worker.py`:
-
-```python
-# Logging is set up automatically in main()
-from contextcore import setup_logging, load_shared_config_from_env
-
-config = load_shared_config_from_env()
-setup_logging(config=config, service_name="contextworker")
-```
-
-### Using Loggers
-
-```python
-from contextcore import get_context_unit_logger
-from contextcore import ContextUnit
-
-logger = get_context_unit_logger(__name__)
-
-# Log with ContextUnit (trace_id automatically included)
-unit = ContextUnit(payload={"workflow_id": "123"})
-logger.info("Starting workflow", unit=unit)
-```
-
-All logs automatically include `trace_id` and `unit_id` for full observability. See [ContextCore Logging Guide](https://contextcore.dev/guides/logging) for details.
-
-## Integration with ContextUnity
-
-ContextWorker integrates with other ContextUnity services:
-
-- **ContextRouter**: For LLM-based content generation activities
-- **ContextBrain**: For semantic search and knowledge retrieval
-- **ContextCommerce**: For product data processing and catalog updates
-- **ContextCore**: For centralized logging and configuration
-
-## Workflow Patterns
-
-### Sequential Execution
-
-Activities run one after another:
-
-```python
-raw_data = await workflow.execute_activity(fetch_vendor_data, url)
-items = await workflow.execute_activity(parse_raw_payload, raw_data)
-count = await workflow.execute_activity(update_staging_buffer, items)
-```
-
-### Parallel Execution
-
-Use `workflow.gather()` for parallel activities:
-
-```python
-results = await workflow.gather(
-    workflow.execute_activity(process_images, image_urls),
-    workflow.execute_activity(generate_seo, product_data),
-)
-```
-
-### Error Handling
-
-Temporal automatically retries activities on failure. Configure retry policies:
-
-```python
-await workflow.execute_activity(
-    fetch_vendor_data,
-    url,
-    start_to_close_timeout=timedelta(minutes=5),
-    retry_policy=RetryPolicy(
-        initial_interval=timedelta(seconds=1),
-        backoff_coefficient=2.0,
-        maximum_attempts=3,
-    ),
-)
+# Run linting
+ruff check src/
 ```
 
 ## License
 
-Apache 2.0
-
-## Links
-
-- [Temporal Documentation](https://docs.temporal.io/)
-- [ContextUnity Architecture](../../docs/ContextUnity.md)
-- [ContextCore](../contextcore/README.md)
+MIT

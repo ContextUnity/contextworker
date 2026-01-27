@@ -1,7 +1,7 @@
 """
 Supplier management for Harvester.
 
-Loads fetchers and transformers from projects/traverse/harvester/.
+Loads fetchers and transformers from PROJECT_DIR/harvester/.
 """
 
 from .config import (

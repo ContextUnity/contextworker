@@ -1,83 +1,84 @@
 """
-ContextWorker CLI entry point.
+ContextWorker - Temporal Worker for ContextUnity.
 
-Usage:
-    python -m contextworker --agent gardener
-    python -m contextworker --list
-    python -m contextworker --all
+Entry point for running worker modules.
+Modules are discovered from installed packages (e.g., contextcommerce).
 """
 
+from __future__ import annotations
+
+import asyncio
 import argparse
 import logging
 import sys
 
-from contextcore import setup_logging, load_shared_config_from_env
 
-from .config import WorkerConfig
-from .registry import get_agent, list_agents
+def setup_logging(level: str = "INFO"):
+    """Setup logging configuration."""
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ContextWorker Agent Runner")
-    parser.add_argument("--agent", type=str, help="Agent name to run (e.g., gardener)")
-    parser.add_argument("--list", action="store_true", help="List available agents")
-    parser.add_argument(
-        "--all", action="store_true", help="Run all agents (not recommended)"
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="ContextWorker - Temporal worker for ContextUnity"
     )
-
+    parser.add_argument(
+        "--modules",
+        "-m",
+        nargs="*",
+        help="Modules to run (default: all discovered). E.g., --modules harvester gardener",
+    )
+    parser.add_argument(
+        "--temporal-host",
+        default=None,
+        help="Temporal server address (default: TEMPORAL_HOST env or localhost:7233)",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level",
+    )
+    
     args = parser.parse_args()
-
-    # Setup logging
-    try:
-        core_config = load_shared_config_from_env()
-        setup_logging(config=core_config, service_name="contextworker")
-    except Exception:
-        logging.basicConfig(level=logging.INFO)
-
+    
+    setup_logging(args.log_level)
     logger = logging.getLogger(__name__)
-
-    if args.list:
-        print("Available agents:")
-        for name in list_agents():
-            print(f"  - {name}")
-        return
-
-    if not args.agent and not args.all:
-        parser.print_help()
+    
+    # Discover modules from installed packages
+    from .core.registry import get_registry
+    
+    registry = get_registry()
+    registry.discover_plugins()
+    
+    # Show registered modules
+    modules = registry.get_all_modules()
+    if modules:
+        logger.info("Registered modules:")
+        for module in modules:
+            status = "✓" if module.enabled else "✗"
+            logger.info(f"  [{status}] {module.name} -> {module.queue}")
+    else:
+        logger.error("No modules discovered!")
+        logger.error("Install contextcommerce or another module package.")
         sys.exit(1)
-
-    # Load worker config
-    config = WorkerConfig.from_env()
-
-    if args.agent:
-        agent_cls = get_agent(args.agent)
-
-        # Get agent-specific config
-        agent_config = {}
-        if args.agent == "gardener":
-            agent_config = {
-                "poll_interval": config.gardener.poll_interval,
-                "batch_size": config.gardener.batch_size,
-                "parallel_batches": config.gardener.parallel_batches,
-                "llm_timeout": config.gardener.llm_timeout,
-                "retry_max": config.gardener.retry_max,
-                "retry_base_delay": config.gardener.retry_base_delay,
-                "brain_db_url": config.brain_database_url,
-                "commerce_db_url": config.commerce_database_url,
-                "router_url": config.router_url,
-                "router_model": config.router_model,
-                "router_api_key": config.router_api_key,
-            }
-
-        agent = agent_cls(config=agent_config)
-        agent.start()
-
-    elif args.all:
-        logger.warning(
-            "Running all agents in single process is not recommended for production"
-        )
-        # TODO: Implement multiprocessing or threading for all agents
-        raise NotImplementedError("Use --agent <name> to run specific agent")
+    
+    # Run workers
+    from .core.worker import run_workers
+    
+    try:
+        asyncio.run(run_workers(
+            modules=args.modules,
+            temporal_host=args.temporal_host,
+        ))
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

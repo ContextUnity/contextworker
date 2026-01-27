@@ -5,7 +5,7 @@ Syncs product images to CDN (Cloudflare R2).
 Uses Brain gRPC to get products with pending images.
 
 Usage:
-    python -m contextworker.harvester.sync_images --project traverse
+    python -m contextworker.harvester.sync_images --project myproject
 """
 
 import argparse
@@ -31,7 +31,7 @@ class ImageSyncWorker:
     def __init__(
         self,
         brain_url: str = "localhost:50051",
-        tenant_id: str = "traverse",
+        tenant_id: str = None,
         batch_size: int = 100,
         rate_limit: float = 10.0,
         concurrency: int = 5,

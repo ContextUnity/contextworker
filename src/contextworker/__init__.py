@@ -1,23 +1,28 @@
-"""ContextWorker - High-performance Temporal Worker for ContextUnity."""
+"""
+ContextWorker - Temporal Worker for ContextUnity.
 
-from .worker import main
-from .workflows import HarvesterImportWorkflow
-from .activities import (
-    fetch_vendor_data,
-    parse_raw_payload,
-    update_staging_buffer,
-)
-from .activities_advanced import (
-    process_product_images,
-    generate_seo_content,
-)
+Job orchestration for:
+- Harvest: Vendor data import
+- Gardener: Product enrichment (via Router)
+- External modules (Commerce sync, etc.)
+
+Usage:
+    # Run all modules
+    python -m contextworker
+    
+    # Run specific modules
+    python -m contextworker --modules harvester gardener
+    
+    # With custom Temporal host
+    python -m contextworker --temporal-host temporal.example.com:7233
+"""
+
+__version__ = "0.1.0"
+
+from .core import WorkerRegistry, get_registry
 
 __all__ = [
-    "main",
-    "HarvesterImportWorkflow",
-    "fetch_vendor_data",
-    "parse_raw_payload",
-    "update_staging_buffer",
-    "process_product_images",
-    "generate_seo_content",
+    "__version__",
+    "WorkerRegistry",
+    "get_registry",
 ]

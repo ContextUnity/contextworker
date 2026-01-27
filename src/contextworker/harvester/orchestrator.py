@@ -31,7 +31,7 @@ class HarvestOrchestrator:
         self,
         supplier_code: str,
         brain_url: str = "localhost:50051",
-        tenant_id: str = "traverse",
+        tenant_id: str = None,
     ):
         self.supplier_code = supplier_code
         self.brain_url = brain_url
@@ -209,7 +209,7 @@ class HarvestOrchestrator:
 async def run_harvest(
     supplier_code: str,
     brain_url: str = "localhost:50051",
-    tenant_id: str = "traverse",
+    tenant_id: str = None,
 ) -> Dict:
     """Run harvest for a single supplier.
 
@@ -224,7 +224,7 @@ async def run_harvest(
 
 async def run_all_harvests(
     brain_url: str = "localhost:50051",
-    tenant_id: str = "traverse",
+    tenant_id: str = None,
 ) -> List[Dict]:
     """Run harvest for all configured suppliers."""
     orchestrator = HarvestOrchestrator("all", brain_url, tenant_id)

@@ -1,18 +1,13 @@
 [project]
 name = "contextworker"
 version = "0.1.0"
-description = "High-performance Temporal Worker for ContextUnity"
+description = "Temporal Worker Infrastructure for ContextUnity"
 dependencies = [
     "temporalio>=1.5.0",
     "grpcio>=1.62.0",
     "protobuf>=4.25.0",
     "pydantic>=2.6.0",
-    "contextcore",
     "pydantic-settings>=2.12.0",
-    "apscheduler>=3.11.2",
-    "redis>=7.1.0",
-    "httpx>=0.28.1",
-    "requests>=2.32.5",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +44,3 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
 ]
-
-[tool.uv.sources]
-contextcore = { path = "../contextcore" }

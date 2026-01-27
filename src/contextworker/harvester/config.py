@@ -54,7 +54,7 @@ class HarvesterConfig(BaseModel):
     # Redis for batch tracking
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis URL")
 
-    # Project-specific paths (from projects/traverse/harvester/)
+    # Project-specific paths (from PROJECT_DIR/harvester/)
     ontology_dir: str = Field(default="", description="Path to ontology JSON files")
     prompts_dir: str = Field(default="", description="Path to prompt templates")
 
