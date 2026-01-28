@@ -9,10 +9,10 @@ Job orchestration for:
 Usage:
     # Run all modules
     python -m contextworker
-    
+
     # Run specific modules
     python -m contextworker --modules harvester gardener
-    
+
     # With custom Temporal host
     python -m contextworker --temporal-host temporal.example.com:7233
 """

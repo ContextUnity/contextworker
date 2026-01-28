@@ -47,7 +47,7 @@ class HarvesterSettings(BaseModel):
 
 def get_project_dir() -> Path:
     """Get project directory from environment.
-    
+
     Uses PROJECT_DIR env var, falling back to current directory.
     """
     project_dir = os.getenv("PROJECT_DIR")
@@ -60,7 +60,7 @@ def get_project_dir() -> Path:
 
 def find_config_dir() -> Path:
     """Find the harvester config directory.
-    
+
     Looks in order:
     1. HARVESTER_CONFIG_DIR env var
     2. {PROJECT_DIR}/harvester/config
@@ -78,8 +78,7 @@ def find_config_dir() -> Path:
         return config_dir
 
     raise FileNotFoundError(
-        "Harvester config directory not found. "
-        "Set PROJECT_DIR or HARVESTER_CONFIG_DIR"
+        "Harvester config directory not found. Set PROJECT_DIR or HARVESTER_CONFIG_DIR"
     )
 
 

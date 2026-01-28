@@ -44,18 +44,18 @@ def main():
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level",
     )
-    
+
     args = parser.parse_args()
-    
+
     setup_logging(args.log_level)
     logger = logging.getLogger(__name__)
-    
+
     # Discover modules from installed packages
     from .core.registry import get_registry
-    
+
     registry = get_registry()
     registry.discover_plugins()
-    
+
     # Show registered modules
     modules = registry.get_all_modules()
     if modules:
@@ -67,15 +67,17 @@ def main():
         logger.error("No modules discovered!")
         logger.error("Install contextcommerce or another module package.")
         sys.exit(1)
-    
+
     # Run workers
     from .core.worker import run_workers
-    
+
     try:
-        asyncio.run(run_workers(
-            modules=args.modules,
-            temporal_host=args.temporal_host,
-        ))
+        asyncio.run(
+            run_workers(
+                modules=args.modules,
+                temporal_host=args.temporal_host,
+            )
+        )
     except KeyboardInterrupt:
         logger.info("Shutting down...")
         sys.exit(0)

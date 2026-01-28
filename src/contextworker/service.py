@@ -42,7 +42,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
         # Import workflows dynamically
         if workflow_type == "harvest":
             from .modules.harvester import HarvestWorkflow
-            
+
             supplier_code = unit.payload.get("supplier_code")
             handle = await client.start_workflow(
                 HarvestWorkflow.run,
@@ -53,7 +53,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
 
         elif workflow_type == "gardener":
             from .modules.gardener import GardenerWorkflow
-            
+
             batch_size = unit.payload.get("batch_size", 50)
             handle = await client.start_workflow(
                 GardenerWorkflow.run,
@@ -66,7 +66,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
             # Commerce module - may not be installed
             try:
                 from modules.sync import SyncWorkflow
-                
+
                 channel = unit.payload.get("channel", "horoshop")
                 handle = await client.start_workflow(
                     SyncWorkflow.run,
