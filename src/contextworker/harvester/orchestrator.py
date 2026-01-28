@@ -136,40 +136,22 @@ class HarvestOrchestrator:
         return result
 
     def _get_fetcher(self):
-        """Get fetcher for this supplier."""
-        try:
-            # Import from projects/{project}/harvester/fetchers/
-            from fetchers import __all__ as fetcher_classes
+        """Get fetcher for this supplier using registry."""
+        from .registry import harvester_registry
 
-            fetcher_name = f"{self.supplier_code.title().replace('_', '')}Fetcher"
-            for cls_name in fetcher_classes:
-                if cls_name.lower() == fetcher_name.lower():
-                    module = __import__(
-                        f"fetchers.{self.supplier_code}", fromlist=[cls_name]
-                    )
-                    return getattr(module, cls_name)()
-        except ImportError as e:
-            logger.warning(f"No fetcher for {self.supplier_code}: {e}")
-        return None
+        fetcher = harvester_registry.get_fetcher(self.supplier_code)
+        if fetcher is None:
+            logger.warning(f"No fetcher for {self.supplier_code}")
+        return fetcher
 
     def _get_transformer(self):
-        """Get transformer for this supplier."""
-        try:
-            # Import from projects/{project}/harvester/transformers/
-            from transformers import __all__ as transformer_classes
+        """Get transformer for this supplier using registry."""
+        from .registry import harvester_registry
 
-            transformer_name = (
-                f"{self.supplier_code.title().replace('_', '')}Transformer"
-            )
-            for cls_name in transformer_classes:
-                if cls_name.lower() == transformer_name.lower():
-                    module = __import__(
-                        f"transformers.{self.supplier_code}", fromlist=[cls_name]
-                    )
-                    return getattr(module, cls_name)()
-        except ImportError as e:
-            logger.warning(f"No transformer for {self.supplier_code}: {e}")
-        return None
+        transformer = harvester_registry.get_transformer(self.supplier_code)
+        if transformer is None:
+            logger.warning(f"No transformer for {self.supplier_code}")
+        return transformer
 
     async def _save_product_via_brain(self, data: Dict[str, Any]) -> None:
         """Save transformed product via Brain gRPC.

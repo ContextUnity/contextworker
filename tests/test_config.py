@@ -2,8 +2,6 @@
 Tests for WorkerConfig and GardenerConfig.
 """
 
-import os
-import pytest
 from contextworker.config import WorkerConfig, GardenerConfig
 
 

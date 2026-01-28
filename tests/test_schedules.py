@@ -2,7 +2,6 @@
 Tests for ScheduleConfig and scheduling utilities.
 """
 
-import pytest
 from contextworker.schedules import ScheduleConfig, DEFAULT_SCHEDULES
 
 
@@ -73,6 +72,4 @@ class TestDefaultSchedules:
         """Verify all schedules have valid cron expressions."""
         for schedule in DEFAULT_SCHEDULES:
             assert schedule.cron is not None
-            assert len(schedule.cron.split()) == 5, (
-                f"Invalid cron: {schedule.cron}"
-            )
+            assert len(schedule.cron.split()) == 5, f"Invalid cron: {schedule.cron}"
