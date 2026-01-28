@@ -32,6 +32,5 @@ jobs:
     - name: Run ruff formatting check
       run: uv run ruff format --check .
 
-    # Tests skipped for now if they require running Temporal server
-    # - name: Run tests
-    #   run: uv run python -m pytest tests/ -v
+    - name: Run tests
+      run: uv run pytest tests/ -v --tb=short
