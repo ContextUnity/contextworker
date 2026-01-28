@@ -7,7 +7,8 @@ Follows ContextCore patterns for consistency.
 
 import os
 from typing import Optional
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
@@ -43,6 +44,12 @@ class WorkerConfig(BaseSettings):
     Loads from environment variables with CONTEXTWORKER_ prefix.
     """
 
+    model_config = ConfigDict(
+        env_prefix="",  # No prefix, use exact names
+        env_file=".env",
+        extra="ignore",
+    )
+
     # Service identity
     service_name: str = Field(default="contextworker")
     service_version: str = Field(default="0.1.0")
@@ -68,11 +75,6 @@ class WorkerConfig(BaseSettings):
 
     # Agent configs
     gardener: GardenerConfig = Field(default_factory=GardenerConfig)
-
-    class Config:
-        env_prefix = ""  # No prefix, use exact names
-        env_file = ".env"
-        extra = "ignore"
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
