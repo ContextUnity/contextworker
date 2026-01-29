@@ -1,6 +1,6 @@
 [project]
 name = "contextworker"
-version = "0.2.0"
+version = "0.2.1"
 description = "Temporal Worker Infrastructure for ContextUnity — durable workflows and background jobs"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -2,23 +2,23 @@
 
 **The Execution Layer of ContextUnity**
 
-ContextWorker is the Temporal-based workflow engine. It provides infrastructure for background jobs, scheduled tasks, and durable workflow execution.
+ContextWorker is the Temporal-based workflow engine. It provides infrastructure for background jobs, scheduled tasks, and durable workflow execution using the ContextUnit protocol.
 
 ---
 
 ## Overview
 
-ContextWorker is the **hands** of the ecosystem. It:
-- Executes long-running workflows durably
-- Schedules recurring jobs (harvesting, enrichment, sync)
-- Discovers and registers activities from dependent packages
-- Provides a unified entry point for all background processing
+ContextWorker is the **"Hands"** of the ecosystem:
+- Executes long-running workflows durably via Temporal
+- Manages scheduled jobs (harvesting, enrichment, sync)
+- Provides gRPC service for workflow triggers from other services
+- Runs background agents via registry pattern
 
 ### Architecture Philosophy
 
 Worker contains **infrastructure only**. Business logic lives in:
-- **ContextCommerce** — Defines activities (harvester, sync)
-- **ContextRouter** — Executes agent logic (gardener, matcher)
+- **ContextCommerce** — Defines harvester activities, sync logic
+- **ContextRouter** — Executes AI agents (Gardener, Matcher)
 
 ---
 
@@ -31,123 +31,217 @@ Worker contains **infrastructure only**. Business logic lives in:
 │                                                                            │
 │  src/contextworker/                                                        │
 │  ├── __main__.py          ← CLI entry point                                │
-│  ├── config.py            ← Pydantic settings                              │
-│  ├── service.py           ← Temporal worker factory                        │
-│  ├── registry.py          ← Module discovery                               │
+│  ├── config.py            ← Pydantic settings (WorkerConfig)               │
+│  ├── registry.py          ← Agent registry (@register decorator)           │
+│  ├── service.py           ← gRPC WorkerService                             │
 │  ├── schedules.py         ← Temporal schedule management                   │
 │  │                                                                         │
 │  ├── core/                                                                 │
 │  │   └── temporal.py      ← Temporal client setup                          │
 │  │                                                                         │
-│  ├── agents/              ← Agent wrappers (polling, triggers)             │
-│  │   └── gardener.py      ← Gardener polling logic                         │
+│  ├── agents/              ← Background polling agents                      │
+│  │   ├── gardener.py      ← Product enrichment polling                     │
+│  │   ├── harvester.py     ← Harvest trigger agent                          │
+│  │   └── lexicon.py       ← Lexicon sync agent                             │
 │  │                                                                         │
-│  └── harvester/           ← Harvester orchestration                        │
-│      ├── workflow.py      ← Main harvest workflow                          │
-│      └── activities.py    ← Download, parse, store                         │
+│  └── harvester/           ← Harvester workflow (infrastructure)            │
+│      ├── workflow.py      ← HarvestWorkflow definition                     │
+│      └── activities.py    ← Download, parse, store activities              │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+                     ┌───────────────┐
+                     │   Temporal    │
+                     │   Server      │
+                     └───────────────┘
 ```
 
 ---
 
-## Module Discovery
+## Integration with ContextUnity
 
-Worker automatically discovers activities from installed packages:
+ContextWorker connects all services:
+
+| Service | Role | How Worker Uses It |
+|---------|------|-------------------|
+| **ContextCore** | Shared types, gRPC protos | worker.proto, ContextUnit |
+| **ContextRouter** | AI orchestration | Calls Gardener/Matcher graphs |
+| **ContextCommerce** | E-commerce platform | Provides workflow activities |
+| **ContextBrain** | Knowledge storage | Taxonomy lookups via gRPC |
+
+### Communication Flow
+
+```
+Router → gRPC → Worker → Temporal → Activities → Commerce/Brain
+```
+
+All gRPC requests use ContextUnit protocol for provenance tracking.
+
+---
+
+## Agent Registry
+
+Background agents register via decorator:
 
 ```python
-# src/contextworker/registry.py
-DISCOVERY_PATHS = [
-    "modules",                    # Local (when running from Commerce)
-    "contextcommerce.modules",    # Pip installed
+from contextworker.registry import register, BaseAgent
+
+@register("myagent")
+class MyAgent(BaseAgent):
+    name = "myagent"
+    
+    async def run(self):
+        while self._running:
+            items = await self.poll_for_work()
+            for item in items:
+                await self.process(item)
+            await asyncio.sleep(60)
+```
+
+### Available Agents
+
+| Agent | Purpose | Poll Interval |
+|-------|---------|---------------|
+| `gardener` | Enrich pending products | 5 min |
+| `harvester` | Trigger supplier imports | 1 hour |
+| `lexicon` | Sync terminology | 15 min |
+
+### Running Agents
+
+```bash
+# Run all registered agents
+python -m contextworker
+
+# Run specific agents
+python -m contextworker --agents gardener harvester
+```
+
+---
+
+## gRPC Service
+
+WorkerService handles workflow triggers from other services:
+
+```python
+# service.py
+class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
+    async def StartWorkflow(self, request, context):
+        unit = ContextUnit.from_protobuf(request)
+        workflow_type = unit.payload.get("workflow_type")
+        
+        if workflow_type == "harvest":
+            handle = await client.start_workflow(
+                HarvestWorkflow.run,
+                args=[supplier_code, tenant_id],
+                task_queue="harvest-tasks",
+            )
+        # Return workflow ID
+        unit.payload["workflow_id"] = handle.id
+        return unit.to_protobuf()
+```
+
+### Supported Workflow Types
+
+| Type | Description | Task Queue |
+|------|-------------|------------|
+| `harvest` | Supplier data import | `harvest-tasks` |
+| `gardener` | Product enrichment | `gardener-tasks` |
+| `sync` | Channel synchronization | `sync-tasks` |
+
+---
+
+## Schedule Management
+
+### Default Schedules
+
+```python
+DEFAULT_SCHEDULES = [
+    ScheduleConfig(
+        schedule_id="harvester-daily",
+        workflow_name="HarvestWorkflow",
+        task_queue="harvest-tasks",
+        cron="0 6 * * *",  # 6 AM daily
+    ),
+    ScheduleConfig(
+        schedule_id="gardener-every-5min",
+        workflow_name="GardenerWorkflow",
+        task_queue="gardener-tasks",
+        cron="*/5 * * * *",  # Every 5 minutes
+    ),
 ]
-
-def discover_modules() -> list[ModuleInfo]:
-    """Scan known paths for register_all functions."""
-    for path in DISCOVERY_PATHS:
-        try:
-            module = import_module(path)
-            if hasattr(module, "register_all"):
-                yield module.register_all
-        except ImportError:
-            continue
 ```
 
-### Registration Pattern
+### CLI Commands
 
-Commerce/Router modules register themselves:
+```bash
+# Create default schedules for tenant
+python -m contextworker.schedules create --tenant-id myproject
 
-```python
-# contextcommerce/modules/__init__.py
-def register_all(registry: WorkerRegistry):
-    from .gardener import activities as gardener_activities
-    from .matcher import activities as matcher_activities
-    from .harvester import activities as harvester_activities
-    
-    registry.add_activities(gardener_activities)
-    registry.add_activities(matcher_activities)
-    registry.add_workflow(harvester_activities.HarvestWorkflow)
+# List all schedules
+python -m contextworker.schedules list
+
+# Pause/unpause schedule
+python -m contextworker.schedules pause gardener-every-5min-myproject
+python -m contextworker.schedules unpause gardener-every-5min-myproject
+
+# Trigger immediately
+python -m contextworker.schedules trigger harvest-camping-trade
+
+# Delete schedule
+python -m contextworker.schedules delete my-schedule-id
 ```
 
----
-
-## Temporal Integration
-
-### Client Setup
+### Programmatic API
 
 ```python
-from contextworker.core.temporal import get_temporal_client
+from contextworker.schedules import (
+    create_schedule,
+    list_schedules,
+    pause_schedule,
+    delete_schedule,
+    ScheduleConfig,
+)
 
-client = await get_temporal_client(host="localhost:7233")
-```
+# Create custom schedule
+config = ScheduleConfig(
+    schedule_id="my-custom-schedule",
+    workflow_name="MyWorkflow",
+    workflow_class=MyWorkflow,
+    task_queue="my-tasks",
+    cron="0 */6 * * *",  # Every 6 hours
+)
+await create_schedule(client, config, tenant_id="myproject")
 
-### Worker Configuration
-
-```python
-from temporalio.worker import Worker
-from contextworker.registry import discover_modules
-
-async def create_worker(client, task_queue: str):
-    registry = WorkerRegistry()
-    for register_fn in discover_modules():
-        register_fn(registry)
-    
-    return Worker(
-        client,
-        task_queue=task_queue,
-        workflows=registry.workflows,
-        activities=registry.activities,
-    )
+# List all
+schedules = await list_schedules(client)
 ```
 
 ---
 
 ## Workflows
 
-### Harvester Workflow
+### HarvestWorkflow
 
 End-to-end supplier data import:
 
 ```python
-# src/contextworker/harvester/workflow.py
-from temporalio import workflow
-from datetime import timedelta
-
 @workflow.defn
 class HarvestWorkflow:
     @workflow.run
-    async def run(self, supplier_id: str) -> HarvestResult:
+    async def run(self, supplier_code: str, tenant_id: str) -> HarvestResult:
         # Step 1: Download feed
         raw_data = await workflow.execute_activity(
             download_feed,
-            supplier_id,
+            supplier_code,
             start_to_close_timeout=timedelta(minutes=5),
         )
         
-        # Step 2: Parse and transform
+        # Step 2: Parse products
         products = await workflow.execute_activity(
             parse_products,
             raw_data,
+            supplier_code,
             start_to_close_timeout=timedelta(minutes=10),
         )
         
@@ -155,6 +249,7 @@ class HarvestWorkflow:
         result = await workflow.execute_activity(
             store_products,
             products,
+            supplier_code,
             start_to_close_timeout=timedelta(minutes=5),
         )
         
@@ -168,122 +263,22 @@ class HarvestWorkflow:
         return result
 ```
 
-### Enrichment Workflow
-
-AI-powered product classification:
+### Activity Pattern
 
 ```python
-@workflow.defn
-class EnrichmentWorkflow:
-    @workflow.run
-    async def run(self, product_ids: list[str]) -> EnrichmentResult:
-        # Batch products for Router
-        batches = chunk(product_ids, size=50)
-        
-        results = []
-        for batch in batches:
-            result = await workflow.execute_activity(
-                classify_products,
-                batch,
-                start_to_close_timeout=timedelta(minutes=10),
-            )
-            results.append(result)
-        
-        return EnrichmentResult(
-            processed=sum(r.processed for r in results),
-            failed=sum(r.failed for r in results),
-        )
-```
-
----
-
-## Activities
-
-### Core Activities
-
-```python
-# src/contextworker/harvester/activities.py
-from temporalio import activity
-
 @activity.defn
-async def download_feed(supplier_id: str) -> bytes:
+async def download_feed(supplier_code: str) -> bytes:
     """Download supplier feed from configured URL."""
-    supplier = await get_supplier(supplier_id)
-    response = await httpx.get(supplier.feed_url)
-    return response.content
+    supplier = await get_supplier(supplier_code)
+    async with httpx.AsyncClient() as client:
+        response = await client.get(supplier.feed_url)
+        return response.content
 
 @activity.defn
-async def parse_products(raw_data: bytes, supplier_id: str) -> list[dict]:
+async def parse_products(raw_data: bytes, supplier_code: str) -> list[dict]:
     """Parse feed using supplier-specific transformer."""
-    transformer = get_transformer(supplier_id)
+    transformer = get_transformer(supplier_code)
     return transformer.parse(raw_data)
-
-@activity.defn
-async def store_products(products: list[dict], supplier_id: str) -> StoreResult:
-    """Store products in Commerce database."""
-    created, updated, errors = 0, 0, 0
-    
-    for product in products:
-        try:
-            obj, was_created = await upsert_dealer_product(
-                supplier_id, product
-            )
-            if was_created:
-                created += 1
-            else:
-                updated += 1
-        except Exception as e:
-            errors += 1
-            activity.logger.error(f"Failed: {e}")
-    
-    return StoreResult(created=created, updated=updated, errors=errors)
-```
-
----
-
-## Schedule Management
-
-### Creating Schedules
-
-```python
-from contextworker.schedules import ScheduleManager
-
-manager = ScheduleManager(client)
-
-# Create harvester schedule
-await manager.create_schedule(
-    schedule_id=f"harvest-{supplier_id}",
-    workflow=HarvestWorkflow.run,
-    args=[supplier_id],
-    cron="0 */6 * * *",  # Every 6 hours
-)
-
-# Create enrichment schedule
-await manager.create_schedule(
-    schedule_id=f"gardener-{tenant_id}",
-    workflow=EnrichmentWorkflow.run,
-    args=[],
-    cron="*/15 * * * *",  # Every 15 minutes
-)
-```
-
-### CLI Commands
-
-```bash
-# Create default schedules
-python -m contextworker.schedules create --tenant-id myproject
-
-# List all schedules
-python -m contextworker.schedules list
-
-# Pause schedule
-python -m contextworker.schedules pause harvest-camping-trade
-
-# Unpause schedule
-python -m contextworker.schedules unpause harvest-camping-trade
-
-# Trigger immediately
-python -m contextworker.schedules trigger harvest-camping-trade
 ```
 
 ---
@@ -294,20 +289,20 @@ python -m contextworker.schedules trigger harvest-camping-trade
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TEMPORAL_HOST` | Temporal server | `localhost:7233` |
-| `DATABASE_URL` | PostgreSQL URL | Required |
+| `TEMPORAL_HOST` | Temporal server address | `localhost:7233` |
+| `DATABASE_URL` | PostgreSQL connection | Required |
 | `PROJECT_DIR` | Config directory | `.` |
-| `TENANT_ID` | Default tenant | `default` |
-| `WORKER_TASK_QUEUE` | Queue name | `default` |
-| `WORKER_MAX_CONCURRENT` | Parallel activities | `10` |
+| `TENANT_ID` | Default tenant ID | `default` |
+| `WORKER_TASK_QUEUE` | Task queue name | `default` |
+| `WORKER_MAX_CONCURRENT` | Max parallel activities | `10` |
 
 ### Config Class
 
 ```python
 from contextworker.config import WorkerConfig
 
-config = WorkerConfig.from_env()
-# Access: config.temporal, config.database, config.tenant_id
+config = WorkerConfig()
+# Access: config.temporal_host, config.database_url, config.tenant_id
 ```
 
 ---
@@ -317,25 +312,28 @@ config = WorkerConfig.from_env()
 ### Development
 
 ```bash
-# Run worker (discovers modules)
+# Run all agents
 python -m contextworker
 
-# Run specific modules only
-python -m contextworker --modules harvester gardener
+# Run specific agents
+python -m contextworker --agents gardener harvester
 
 # Custom Temporal host
 python -m contextworker --temporal-host temporal.example.com:7233
+
+# Run gRPC service
+python -m contextworker.service
 ```
 
 ### Production (Docker)
 
 ```yaml
-# docker-compose.yml
 services:
   temporal:
     image: temporalio/auto-setup:latest
     ports:
       - "7233:7233"
+      - "8080:8080"  # Temporal UI
 
   worker:
     image: contextcommerce:latest
@@ -344,35 +342,7 @@ services:
       - TEMPORAL_HOST=temporal:7233
       - DATABASE_URL=postgres://...
     deploy:
-      replicas: 3  # Scale workers
-```
-
----
-
-## Agent Polling
-
-### Gardener Polling
-
-Periodically checks for unclassified products:
-
-```python
-# src/contextworker/agents/gardener.py
-async def poll_for_unclassified(tenant_id: str) -> list[str]:
-    """Query Commerce for products needing classification."""
-    from contextcommerce.harvester.models import DealerProduct
-    
-    products = DealerProduct.objects.filter(
-        enrichment_status="pending",
-        tenant_id=tenant_id,
-    ).values_list("id", flat=True)[:100]
-    
-    return list(products)
-
-@activity.defn
-async def run_gardener_batch(product_ids: list[str]) -> dict:
-    """Call Router's Gardener agent."""
-    from contextrouter.cortex.graphs.commerce.gardener import run_gardener
-    return await run_gardener(product_ids)
+      replicas: 3  # Scale workers independently
 ```
 
 ---
@@ -383,11 +353,11 @@ async def run_gardener_batch(product_ids: list[str]) -> dict:
 # Run all tests
 uv run pytest
 
-# With Temporal (requires running instance)
-uv run pytest -m integration
-
-# Mock Temporal
+# Unit tests (mock Temporal)
 uv run pytest -m unit
+
+# Integration tests (requires Temporal)
+uv run pytest -m integration
 ```
 
 ### Mocking Temporal
@@ -406,10 +376,10 @@ async def test_harvest_workflow():
             result = await env.client.execute_workflow(
                 HarvestWorkflow.run,
                 "test-supplier",
+                "test-tenant",
                 task_queue="test",
             )
-            
-            assert result.created > 0
+            assert result.created >= 0
 ```
 
 ---
@@ -418,12 +388,14 @@ async def test_harvest_workflow():
 
 | File | Purpose |
 |------|---------|
-| `__main__.py` | CLI entry point |
-| `config.py` | Pydantic settings |
-| `service.py` | Worker factory |
-| `registry.py` | Module discovery |
-| `schedules.py` | Schedule management |
-| `harvester/workflow.py` | Main harvest workflow |
+| `__main__.py` | CLI entry point, agent runner |
+| `config.py` | Pydantic settings (WorkerConfig) |
+| `registry.py` | Agent registry, BaseAgent class |
+| `service.py` | gRPC WorkerService |
+| `schedules.py` | Temporal schedule management |
+| `core/temporal.py` | Temporal client setup |
+| `agents/gardener.py` | Gardener polling agent |
+| `harvester/workflow.py` | HarvestWorkflow definition |
 
 ---
 
@@ -432,6 +404,7 @@ async def test_harvest_workflow():
 - **Documentation**: https://contextworker.dev
 - **Repository**: https://github.com/ContextUnity/contextworker
 - **Temporal Docs**: https://docs.temporal.io/
+- **Contributing**: [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ---
 

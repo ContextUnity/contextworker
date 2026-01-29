@@ -10,16 +10,136 @@
 
 ## What is ContextWorker?
 
-ContextWorker is the **Temporal Worker Infrastructure** for ContextUnity. It provides the execution layer for durable workflows, scheduled jobs, and background processing.
+ContextWorker is the **Background Processing Engine** of the [ContextUnity](https://github.com/ContextUnity) ecosystem. Built on [Temporal](https://temporal.io/), it provides:
 
-**Important**: Worker contains **infrastructure only**. Business logic (harvesting, enrichment) is discovered from installed packages like ContextCommerce.
+- **Durable Workflows** — long-running processes that survive restarts and failures
+- **Scheduled Jobs** — cron-based recurring tasks (harvesting, enrichment, sync)
+- **gRPC Service** — trigger workflows from other services via ContextUnit protocol
+- **Agent System** — polling-based background agents with registry pattern
+
+Think of it as the **"Hands"** of the ecosystem — executing the work orchestrated by Router.
+
+## Core Concepts
+
+### Infrastructure Only
+
+Worker contains **NO business logic**. It provides infrastructure for:
+- Temporal workflow/activity execution
+- Schedule management
+- Agent lifecycle
+- gRPC service for workflow triggers
+
+**Business logic lives in domain packages:**
+- Commerce harvesting → `ContextCommerce`
+- AI enrichment → `ContextRouter`
+
+### ContextUnit Protocol
+
+All inter-service communication uses ContextUnit:
+
+```python
+from contextcore import ContextUnit
+
+# Trigger workflow via gRPC
+unit = ContextUnit(
+    payload={
+        "workflow_type": "harvest",
+        "supplier_code": "camping-trade",
+        "tenant_id": "myproject",
+    },
+    provenance=["commerce:trigger"],
+)
+```
+
+> **What is gRPC?** [gRPC](https://grpc.io/) is a high-performance RPC framework using Protocol Buffers. It provides type-safe, efficient service-to-service communication with built-in streaming.
+
+## Integration with ContextUnity
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ContextRouter                               │
+│                     (The "Mind" — Orchestration)                    │
+├─────────────────────────────────────────────────────────────────────┤
+│  • Orchestrates AI agents (Gardener, Matcher)                       │
+│  • Routes LLM requests                                              │
+│  • Calls Worker to trigger workflows                                │
+└───────────────────────────────────┬─────────────────────────────────┘
+                                    │ triggers via gRPC
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ContextWorker                               │
+│                     (The "Hands" — Execution)                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  • Executes durable Temporal workflows                              │
+│  • Manages scheduled jobs (harvest, enrich, sync)                   │
+│  • Runs background agents (polling loops)                           │
+│  • Exposes gRPC service for workflow triggers                       │
+└───────────────────────────────────┬─────────────────────────────────┘
+                                    │ runs workflows defined in
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ContextCommerce                              │
+│                    (The "Store" — Domain Logic)                     │
+├─────────────────────────────────────────────────────────────────────┤
+│  • Defines harvester workflows/activities                           │
+│  • Defines sync workflows (Horoshop, Prom)                          │
+│  • Product catalog and taxonomy                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+| Service | Role | How Worker Uses It |
+|---------|------|-------------------|
+| **ContextCore** | Shared types, gRPC protos | worker.proto, ContextUnit |
+| **ContextRouter** | AI orchestration | Executes Gardener/Matcher agents |
+| **ContextCommerce** | E-commerce platform | Provides workflows/activities |
+| **ContextBrain** | Knowledge storage | Taxonomy lookups via gRPC |
 
 ## Key Features
 
-- **⚡ Durable Workflows** — Temporal-based execution survives restarts and failures
-- **📅 Schedule Management** — Create, pause, and trigger recurring jobs
-- **🔌 Module Discovery** — Automatically finds activities from installed packages
-- **📈 Scalable** — Run multiple worker instances for parallel processing
+- **⚡ Temporal Integration** — durable, fault-tolerant workflow execution
+- **📅 Schedule Management** — create, pause, trigger recurring jobs
+- **🔌 Agent Registry** — `@register` decorator for background agents
+- **📡 gRPC Service** — WorkerService for workflow triggers
+- **📈 Scalable** — run multiple worker instances for parallel processing
+
+## Architecture
+
+```
+src/contextworker/
+├── __main__.py       # CLI entry point
+├── config.py         # Pydantic settings (WorkerConfig)
+├── registry.py       # Agent registry (@register decorator)
+├── service.py        # gRPC WorkerService
+├── schedules.py      # Temporal schedule management
+│
+├── core/
+│   └── temporal.py   # Temporal client setup
+│
+├── agents/           # Background polling agents
+│   ├── gardener.py   # Product enrichment polling
+│   ├── harvester.py  # Harvest trigger agent
+│   └── lexicon.py    # Lexicon sync agent
+│
+└── harvester/        # Harvester workflow (infrastructure)
+    ├── workflow.py   # HarvestWorkflow definition
+    └── activities.py # Download, parse, store activities
+```
+
+## Quick Start
+
+```bash
+# Install
+pip install contextworker
+
+# Run worker (discovers agents automatically)
+python -m contextworker
+
+# Run specific agents
+python -m contextworker --agents gardener harvester
+
+# Create schedules for tenant
+python -m contextworker.schedules create --tenant-id myproject
+```
 
 ## Installation
 
@@ -28,155 +148,39 @@ ContextWorker is the **Temporal Worker Infrastructure** for ContextUnity. It pro
 pip install contextworker
 
 # With Commerce modules (full stack)
-pip install contextcommerce  # Includes contextworker
+pip install contextcommerce  # Includes contextworker as dependency
 ```
 
-## Usage
+## Configuration
 
 ```bash
-# Run workers (discovers modules automatically)
-python -m contextworker
+# Temporal
+export TEMPORAL_HOST="localhost:7233"
+export WORKER_TASK_QUEUE="default"
+export WORKER_MAX_CONCURRENT="10"
 
-# Run specific modules only
-python -m contextworker --modules harvester gardener
+# Database (for activities that access Commerce)
+export DATABASE_URL="postgres://user:pass@localhost/db"
 
-# With custom Temporal host
-python -m contextworker --temporal-host temporal.example.com:7233
+# Tenant
+export TENANT_ID="default"
+export PROJECT_DIR="."
 ```
-
-### Schedule Management
-
-```bash
-# Create default schedules for a tenant
-python -m contextworker.schedules create --tenant-id myproject
-
-# List all schedules
-python -m contextworker.schedules list
-
-# Pause/unpause a schedule
-python -m contextworker.schedules pause gardener-every-5min-myproject
-python -m contextworker.schedules unpause gardener-every-5min-myproject
-
-# Trigger immediately
-python -m contextworker.schedules trigger harvest-camping-trade
-```
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    ContextCommerce                            │
-│                                                               │
-│  modules/                                                     │
-│    harvester/   - Vendor data import                          │
-│    gardener/    - Product enrichment                          │
-│    sync/        - Channel sync (Horoshop, Prom)               │
-│                                                               │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            │ depends on
-                            ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    ContextWorker                              │
-│                                                               │
-│  core/                                                        │
-│    registry.py  - Module discovery                            │
-│    worker.py    - Temporal worker factory                     │
-│                                                               │
-│  schedules.py   - Temporal schedule management                │
-│  __main__.py    - CLI entry point                             │
-│                                                               │
-└──────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-                    ┌───────────────┐
-                    │   Temporal    │
-                    │   Server      │
-                    └───────────────┘
-```
-
-## Module Discovery
-
-Worker discovers modules by trying to import from known packages:
-
-1. `modules` (when running from Commerce directory)
-2. `contextcommerce.modules` (when pip installed)
-
-Modules register via `register_all(registry)` function:
-
-```python
-# contextcommerce/modules/__init__.py
-def register_all(registry: WorkerRegistry):
-    from .gardener import activities as gardener
-    from .harvester import activities as harvester
-    
-    registry.add_activities(gardener)
-    registry.add_workflow(harvester.HarvestWorkflow)
-```
-
-## Docker Compose
-
-```yaml
-services:
-  temporal:
-    image: temporalio/auto-setup:latest
-    ports:
-      - "7233:7233"
-      - "8080:8080"  # UI
-
-  django:
-    image: commerce:latest
-    command: python manage.py runserver 0.0.0.0:8000
-    
-  worker:
-    image: commerce:latest  # Same image!
-    command: python -m contextworker
-    environment:
-      - TEMPORAL_HOST=temporal:7233
-      - DATABASE_URL=postgres://...
-    deploy:
-      replicas: 3  # Scale workers independently
-```
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `TEMPORAL_HOST` | Temporal server address | `localhost:7233` |
-| `DATABASE_URL` | PostgreSQL connection | - |
-| `PROJECT_DIR` | Project config directory | `.` |
-| `TENANT_ID` | Default tenant ID | `default` |
-| `WORKER_TASK_QUEUE` | Queue name | `default` |
 
 ## Documentation
 
 - [Full Documentation](https://contextworker.dev) — complete guides and API reference
 - [Technical Reference](./contextworker-fulldoc.md) — architecture deep-dive
+- [Contributing Guide](./CONTRIBUTING.md) — Golden Paths for adding functionality
 - [Temporal Docs](https://docs.temporal.io/) — workflow engine documentation
 
-## ContextUnity Ecosystem
+## Contributing
 
-ContextWorker is part of the [ContextUnity](https://github.com/ContextUnity) platform:
+See our [Contributing Guide](./CONTRIBUTING.md) for:
 
-| Service | Role | Documentation |
-|---------|------|---------------|
-| **ContextCore** | Shared types and gRPC contracts | [contextcore.dev](https://contextcore.dev) |
-| **ContextBrain** | Semantic knowledge store | [contextbrain.dev](https://contextbrain.dev) |
-| **ContextRouter** | AI agent orchestration | [contextrouter.dev](https://contextrouter.dev) |
-| **ContextCommerce** | E-commerce platform | [contextcommerce.dev](https://contextcommerce.dev) |
-
-## Development
-
-```bash
-# Install with dev dependencies
-uv sync --dev
-
-# Run tests
-uv run pytest
-
-# Run linting
-uv run ruff check src/
-```
+- **Golden Path: Adding an Agent** — registry pattern, lifecycle
+- **Golden Path: Adding a Workflow** — Temporal patterns, activities
+- **Golden Path: Adding a Schedule** — cron configuration
 
 ## License
 
