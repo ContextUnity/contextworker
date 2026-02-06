@@ -1,8 +1,18 @@
 """
 ContextWorker - Temporal Worker for ContextUnity.
 
-Entry point for running worker modules.
-Modules are discovered from installed packages (e.g., contextcommerce).
+Entry point for running Temporal workers.
+Modules are discovered from installed packages or registered manually.
+
+Usage:
+    # Run all discovered modules
+    python -m contextworker
+
+    # Run specific modules
+    python -m contextworker --modules harvest gardener
+
+    # With custom Temporal host
+    python -m contextworker --temporal-host temporal.example.com:7233
 """
 
 from __future__ import annotations
@@ -31,7 +41,7 @@ def main():
         "--modules",
         "-m",
         nargs="*",
-        help="Modules to run (default: all discovered). E.g., --modules harvester gardener",
+        help="Modules to run (default: all discovered)",
     )
     parser.add_argument(
         "--temporal-host",
@@ -64,8 +74,11 @@ def main():
             status = "✓" if module.enabled else "✗"
             logger.info(f"  [{status}] {module.name} -> {module.queue}")
     else:
-        logger.error("No modules discovered!")
-        logger.error("Install contextcommerce or another module package.")
+        logger.warning("No modules discovered. Register modules before running.")
+        logger.info("Example:")
+        logger.info("  from contextworker import get_registry")
+        logger.info("  registry = get_registry()")
+        logger.info("  registry.register('mymodule', 'my-queue', [Workflow], [activity])")
         sys.exit(1)
 
     # Run workers

@@ -1,26 +1,31 @@
 """
-Temporal Schedules for Worker modules.
+Temporal Schedules utilities for ContextWorker.
 
-Provides utilities for creating and managing scheduled workflows.
-Replaces APScheduler with Temporal's native scheduling.
+Provides helpers for creating and managing scheduled workflows.
 
 Usage:
     # CLI
-    python -m contextworker.schedules create
     python -m contextworker.schedules list
-    python -m contextworker.schedules delete gardener-every-5min
+    python -m contextworker.schedules delete my-schedule-id
 
     # Python
-    from contextworker.schedules import create_default_schedules
-    await create_default_schedules(client, tenant_id="traverse")
+    from contextworker.schedules import create_schedule, list_schedules
+
+    await create_schedule(
+        client=client,
+        schedule_id="harvest-daily",
+        workflow=HarvestWorkflow.run,
+        args=["vysota"],
+        task_queue="commerce-tasks",
+        cron="0 6 * * *",
+    )
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
-from typing import List
+from typing import Any, Callable, List, Optional
 
 from temporalio.client import (
     Client,
@@ -32,42 +37,6 @@ from temporalio.client import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ScheduleConfig:
-    """Configuration for a scheduled workflow."""
-
-    schedule_id: str
-    workflow_name: str
-    workflow_class: type
-    task_queue: str
-    cron: str
-    args: list = None
-    description: str = ""
-
-
-# Default schedules for Worker modules
-DEFAULT_SCHEDULES = [
-    ScheduleConfig(
-        schedule_id="harvester-daily",
-        workflow_name="HarvestWorkflow",
-        workflow_class=None,  # Set at runtime
-        task_queue="harvest-tasks",
-        cron="0 6 * * *",  # Every day at 6 AM
-        args=["all"],  # supplier_code="all" means run all suppliers
-        description="Daily harvest of all suppliers",
-    ),
-    ScheduleConfig(
-        schedule_id="gardener-every-5min",
-        workflow_name="GardenerWorkflow",
-        workflow_class=None,
-        task_queue="gardener-tasks",
-        cron="*/5 * * * *",  # Every 5 minutes
-        args=[],  # tenant_id added at runtime
-        description="Enrich pending products every 5 minutes",
-    ),
-]
-
-
 async def get_temporal_client(host: str = None) -> Client:
     """Get Temporal client."""
     if host is None:
@@ -77,52 +46,41 @@ async def get_temporal_client(host: str = None) -> Client:
 
 async def create_schedule(
     client: Client,
-    config: ScheduleConfig,
-    tenant_id: str,
+    schedule_id: str,
+    workflow: Callable,
+    task_queue: str,
+    cron: str,
+    args: Optional[List[Any]] = None,
+    workflow_id: Optional[str] = None,
 ) -> str:
     """Create a Temporal schedule for a workflow.
+
+    Args:
+        client: Temporal client
+        schedule_id: Unique schedule identifier
+        workflow: Workflow run method (e.g., MyWorkflow.run)
+        task_queue: Task queue name
+        cron: Cron expression (e.g., "0 6 * * *" for 6 AM daily)
+        args: Arguments to pass to workflow
+        workflow_id: Optional workflow ID (defaults to schedule_id)
 
     Returns:
         Schedule ID
     """
-    from .modules.harvester import HarvestWorkflow
-    from .modules.gardener import GardenerWorkflow
-
-    # Map workflow names to classes
-    workflow_map = {
-        "HarvestWorkflow": HarvestWorkflow,
-        "GardenerWorkflow": GardenerWorkflow,
-    }
-
-    workflow_class = workflow_map.get(config.workflow_name)
-    if not workflow_class:
-        raise ValueError(f"Unknown workflow: {config.workflow_name}")
-
-    # Build args with tenant_id
-    args = list(config.args) if config.args else []
-    if config.workflow_name == "GardenerWorkflow":
-        args = [tenant_id, 50, 10]  # tenant_id, batch_size, max_batches
-    elif config.workflow_name == "HarvestWorkflow":
-        # For harvest, first arg is supplier_code, second is tenant_id
-        if args and args[0] == "all":
-            args = ["all", tenant_id]
-        else:
-            args.append(tenant_id)
-
-    schedule_id = f"{config.schedule_id}-{tenant_id}"
+    wf_id = workflow_id or f"{schedule_id}-scheduled"
 
     try:
         await client.create_schedule(
             schedule_id,
             Schedule(
                 action=ScheduleActionStartWorkflow(
-                    workflow_class.run,
-                    args=args,
-                    id=f"{config.workflow_name.lower()}-scheduled-{tenant_id}",
-                    task_queue=config.task_queue,
+                    workflow,
+                    args=args or [],
+                    id=wf_id,
+                    task_queue=task_queue,
                 ),
                 spec=ScheduleSpec(
-                    cron_expressions=[config.cron],
+                    cron_expressions=[cron],
                 ),
             ),
         )
@@ -135,35 +93,9 @@ async def create_schedule(
         raise
 
 
-async def create_default_schedules(
-    client: Client = None,
-    tenant_id: str = None,
-    temporal_host: str = None,
-) -> List[str]:
-    """Create all default schedules for a tenant.
-
-    Returns:
-        List of created schedule IDs
-    """
-    if client is None:
-        client = await get_temporal_client(temporal_host)
-
-    if tenant_id is None:
-        tenant_id = os.getenv("TENANT_ID", "default")
-
-    schedule_ids = []
-    for config in DEFAULT_SCHEDULES:
-        try:
-            sid = await create_schedule(client, config, tenant_id)
-            schedule_ids.append(sid)
-        except Exception as e:
-            logger.error(f"Failed to create schedule {config.schedule_id}: {e}")
-
-    return schedule_ids
-
-
 async def list_schedules(
-    client: Client = None, temporal_host: str = None
+    client: Client = None,
+    temporal_host: str = None,
 ) -> List[dict]:
     """List all schedules."""
     if client is None:
@@ -202,10 +134,14 @@ async def delete_schedule(
         return False
 
 
-async def pause_schedule(schedule_id: str, client: Client = None) -> bool:
+async def pause_schedule(
+    schedule_id: str,
+    client: Client = None,
+    temporal_host: str = None,
+) -> bool:
     """Pause a schedule."""
     if client is None:
-        client = await get_temporal_client()
+        client = await get_temporal_client(temporal_host)
 
     try:
         handle = client.get_schedule_handle(schedule_id)
@@ -217,10 +153,14 @@ async def pause_schedule(schedule_id: str, client: Client = None) -> bool:
         return False
 
 
-async def unpause_schedule(schedule_id: str, client: Client = None) -> bool:
+async def unpause_schedule(
+    schedule_id: str,
+    client: Client = None,
+    temporal_host: str = None,
+) -> bool:
     """Unpause a schedule."""
     if client is None:
-        client = await get_temporal_client()
+        client = await get_temporal_client(temporal_host)
 
     try:
         handle = client.get_schedule_handle(schedule_id)
@@ -239,10 +179,6 @@ async def _cli_main():
 
     parser = argparse.ArgumentParser(description="Manage Temporal schedules")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # create
-    create_parser = subparsers.add_parser("create", help="Create default schedules")
-    create_parser.add_argument("--tenant-id", default=None, help="Tenant ID")
 
     # list
     subparsers.add_parser("list", help="List all schedules")
@@ -263,14 +199,13 @@ async def _cli_main():
 
     logging.basicConfig(level=logging.INFO)
 
-    if args.command == "create":
-        ids = await create_default_schedules(tenant_id=args.tenant_id)
-        print(f"Created {len(ids)} schedules: {ids}")
-
-    elif args.command == "list":
+    if args.command == "list":
         schedules = await list_schedules()
-        for s in schedules:
-            print(f"  {s['id']}: {s['workflow']}")
+        if schedules:
+            for s in schedules:
+                print(f"  {s['id']}: {s['workflow']}")
+        else:
+            print("No schedules found")
 
     elif args.command == "delete":
         await delete_schedule(args.schedule_id)
@@ -290,3 +225,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+__all__ = [
+    "get_temporal_client",
+    "create_schedule",
+    "list_schedules",
+    "delete_schedule",
+    "pause_schedule",
+    "unpause_schedule",
+]
