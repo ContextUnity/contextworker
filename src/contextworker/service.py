@@ -15,6 +15,9 @@ except ImportError:
         worker_pb2_grpc = None
         context_unit_pb2 = None
 
+from contextcore.exceptions import SecurityError
+from contextcore.security import validate_safe_url
+
 from .config import get_config
 from .subagents.executor import SubAgentExecutor
 from .subagents.isolation import IsolationContext
@@ -116,11 +119,18 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
             # Get Temporal client
             client = await self.get_client()
 
-            # Start workflow based on type
             if workflow_type == "harvest":
                 from contextworker.workflows import HarvesterImportWorkflow
 
-                url = unit.payload.get("url")
+                raw_url = unit.payload.get("url")
+                if not raw_url:
+                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, "url is required for harvest workflow")
+
+                try:
+                    url = validate_safe_url(raw_url, allow_local=False)
+                except SecurityError as e:
+                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+
                 handle = await client.start_workflow(
                     HarvesterImportWorkflow.run,
                     url,
