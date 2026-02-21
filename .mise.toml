@@ -1,3 +1,7 @@
+# ContextWorker — The Hands of ContextUnity
+# Temporal-based durable workflow execution, background jobs,
+# and scheduled task infrastructure
+
 [tools]
 python = "3.13"
 uv = "latest"
@@ -8,66 +12,51 @@ PYTHON = "$(mise which python)"
 
 [tasks.sync]
 description = "Install all dependencies (dev)"
-run = "uv sync --dev"
+run = "uv sync --group dev"
 
 [tasks.lint]
 description = "Lint + format-check all code (Ruff)"
-run = "uv run ruff check src/ && uv run ruff format --check src/"
+run = "uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/"
 
 [tasks.format]
 description = "Format all code (Ruff)"
-run = "uv run ruff check --fix src/ && uv run ruff format src/"
+run = "uv run ruff check --fix src/ tests/ && uv run ruff format src/ tests/"
 
 [tasks.test]
 description = "Run all tests"
-run = "uv run python -m pytest tests/ -v"
+run = "uv run pytest tests/ -v"
+
+[tasks.test-unit]
+description = "Run unit tests only"
+run = "uv run pytest tests/ -v -m unit"
 
 [tasks.check]
 description = "Run all checks (lint + test)"
 run = "mise run lint && mise run test"
 
-# ===== Harvester Commands =====
+# =============================================================================
+# Server Commands
+# =============================================================================
 
-[tasks.harvest]
-description = "Run harvester for default project"
-run = "uv run python -m contextworker.harvester.run"
+[tasks.serve]
+description = "Start Worker gRPC service (default mode)"
+run = "uv run python -m contextworker"
 
-[tasks."harvest:project"]
-description = "Run harvester for specific project (e.g., mise run harvest:project traverse)"
-run = "uv run python -m contextworker.harvester.run --project"
-
-[tasks."harvest:supplier"]
-description = "Run harvester for specific supplier (e.g., mise run harvest:supplier traverse vysota)"
-run = """
-PROJECT=$1
-SUPPLIER=$2
-uv run python -m contextworker.harvester.run --project $PROJECT --supplier $SUPPLIER
-"""
-
-[tasks.sync-images]
-description = "Sync product images to CDN"
-run = "uv run python -m contextworker.harvester.sync_images"
-
-[tasks."sync-images:dealer"]
-description = "Sync images for specific dealer"
-run = "uv run python -m contextworker.harvester.sync_images --dealer"
-
-# ===== Agent Commands =====
-
-[tasks.gardener]
-description = "Start Gardener scheduler"
-run = "uv run python -m contextworker.scheduler --agent gardener"
-
-[tasks.lexicon]
-description = "Start Lexicon agent"
-run = "uv run python -m contextworker.scheduler --agent lexicon"
+[tasks.dev]
+description = "Start Worker gRPC service in dev mode"
+run = "uv run python -m contextworker"
 
 [tasks.worker]
 description = "Start Temporal worker (all workflows)"
-run = "uv run python -m contextworker.worker"
+run = "uv run python -m contextworker --temporal"
 
+[tasks."worker:modules"]
+description = "Start Temporal worker (specific modules, e.g., mise run worker:modules -- harvest gardener)"
+run = "uv run python -m contextworker --temporal --modules"
 
-# ===== Utility =====
+# =============================================================================
+# Utility
+# =============================================================================
 
 [tasks.clean]
 description = "Clean cache files and build artifacts"

@@ -1,165 +1,98 @@
 """
-Tests for Agent Registry.
+Tests for WorkerRegistry.
 """
 
-import pytest
-from contextworker.registry import (
-    register,
-    get_agent,
-    list_agents,
-    BaseAgent,
-    _agents,
-)
+from contextworker.core.registry import ModuleConfig, WorkerRegistry, get_registry
 
 
-class TestRegisterDecorator:
-    """Test @register decorator."""
+class TestWorkerRegistry:
+    """Test WorkerRegistry module registration."""
 
-    def test_register_adds_agent_to_registry(self):
-        """Verify register() adds agent class to registry."""
-        # Clear any existing test agents
-        test_name = "test_agent_decorator"
-        if test_name in _agents:
-            del _agents[test_name]
+    def test_register_module(self):
+        """Verify register() adds a module to the registry."""
+        registry = WorkerRegistry()
+        registry.register(name="test-mod", queue="test-queue", workflows=[], activities=[])
 
-        @register(test_name)
-        class TestAgent(BaseAgent):
-            name = test_name
+        mod = registry.get_module("test-mod")
+        assert mod is not None
+        assert mod.name == "test-mod"
+        assert mod.queue == "test-queue"
 
-        assert test_name in _agents
-        assert _agents[test_name] == TestAgent
+    def test_register_duplicate_skipped(self):
+        """Verify duplicate registration is silently skipped."""
+        registry = WorkerRegistry()
+        registry.register(name="dup", queue="q1")
+        registry.register(name="dup", queue="q2")  # should be ignored
 
-        # Cleanup
-        del _agents[test_name]
+        mod = registry.get_module("dup")
+        assert mod.queue == "q1"
 
-    def test_register_returns_original_class(self):
-        """Verify decorator returns the class unchanged."""
-        test_name = "test_agent_return"
-        if test_name in _agents:
-            del _agents[test_name]
+    def test_get_all_modules(self):
+        """Verify get_all_modules returns all registered."""
+        registry = WorkerRegistry()
+        registry.register(name="a", queue="qa")
+        registry.register(name="b", queue="qb")
 
-        @register(test_name)
-        class TestAgent(BaseAgent):
-            name = test_name
+        all_mods = registry.get_all_modules()
+        assert len(all_mods) == 2
+        names = {m.name for m in all_mods}
+        assert names == {"a", "b"}
 
-        # The decorated class should work normally
-        agent = TestAgent()
-        assert agent.name == test_name
+    def test_get_enabled_modules(self):
+        """Verify enable/disable filtering works."""
+        registry = WorkerRegistry()
+        registry.register(name="on", queue="q")
+        registry.register(name="off", queue="q")
+        registry.disable_module("off")
 
-        # Cleanup
-        del _agents[test_name]
+        enabled = registry.get_enabled_modules()
+        assert len(enabled) == 1
+        assert enabled[0].name == "on"
 
+    def test_get_queues(self):
+        """Verify get_queues groups modules by queue."""
+        registry = WorkerRegistry()
+        registry.register(name="a", queue="shared")
+        registry.register(name="b", queue="shared")
+        registry.register(name="c", queue="solo")
 
-class TestGetAgent:
-    """Test get_agent() function."""
+        queues = registry.get_queues()
+        assert len(queues) == 2
+        assert len(queues["shared"]) == 2
+        assert len(queues["solo"]) == 1
 
-    def test_get_agent_returns_class(self):
-        """Verify get_agent returns registered agent class."""
-        test_name = "test_get_agent"
-        if test_name in _agents:
-            del _agents[test_name]
+    def test_get_module_not_found(self):
+        """Verify get_module returns None for unknown."""
+        registry = WorkerRegistry()
+        assert registry.get_module("nope") is None
 
-        @register(test_name)
-        class TestAgent(BaseAgent):
-            name = test_name
+    def test_enable_module(self):
+        """Verify enable_module re-enables a disabled module."""
+        registry = WorkerRegistry()
+        registry.register(name="x", queue="q")
+        registry.disable_module("x")
+        registry.enable_module("x")
 
-        result = get_agent(test_name)
-        assert result == TestAgent
-
-        # Cleanup
-        del _agents[test_name]
-
-    def test_get_agent_raises_for_unknown(self):
-        """Verify get_agent raises ValueError for unknown agent."""
-        with pytest.raises(ValueError, match="Unknown agent"):
-            get_agent("nonexistent_agent_xyz")
-
-
-class TestListAgents:
-    """Test list_agents() function."""
-
-    def test_list_agents_returns_list(self):
-        """Verify list_agents returns a list of names."""
-        result = list_agents()
-        assert isinstance(result, list)
-
-    def test_list_agents_includes_registered(self):
-        """Verify registered agents appear in list."""
-        test_name = "test_list_agent"
-        if test_name in _agents:
-            del _agents[test_name]
-
-        @register(test_name)
-        class TestAgent(BaseAgent):
-            name = test_name
-
-        result = list_agents()
-        assert test_name in result
-
-        # Cleanup
-        del _agents[test_name]
+        mod = registry.get_module("x")
+        assert mod.enabled is True
 
 
-class TestBaseAgent:
-    """Test BaseAgent base class."""
+class TestModuleConfig:
+    """Test ModuleConfig dataclass."""
 
-    def test_base_agent_default_name(self):
-        """Verify BaseAgent has default name."""
-        agent = BaseAgent()
-        assert agent.name == "base"
-
-    def test_base_agent_accepts_config(self):
-        """Verify BaseAgent stores config."""
-        config = {"key": "value", "batch_size": 100}
-        agent = BaseAgent(config=config)
-        assert agent.config == config
-
-    def test_base_agent_empty_config_default(self):
-        """Verify BaseAgent defaults to empty config."""
-        agent = BaseAgent()
-        assert agent.config == {}
-
-    def test_base_agent_running_flag(self):
-        """Verify BaseAgent has _running flag."""
-        agent = BaseAgent()
-        assert agent._running is False
-
-    def test_base_agent_stop_sets_flag(self):
-        """Verify stop() sets _running to False."""
-        agent = BaseAgent()
-        agent._running = True
-        agent.stop()
-        assert agent._running is False
-
-    def test_base_agent_run_raises_not_implemented(self):
-        """Verify run() raises NotImplementedError."""
-        agent = BaseAgent()
-        with pytest.raises(NotImplementedError):
-            agent.run()
+    def test_defaults(self):
+        """Verify default values."""
+        mc = ModuleConfig(name="test", queue="q")
+        assert mc.workflows == []
+        assert mc.activities == []
+        assert mc.enabled is True
 
 
-class TestCustomAgent:
-    """Test custom agent implementation."""
+class TestGetRegistry:
+    """Test global registry singleton."""
 
-    def test_custom_agent_can_override_run(self):
-        """Verify custom agent can implement run()."""
-
-        class MyAgent(BaseAgent):
-            name = "my_agent"
-            ran = False
-
-            def run(self):
-                self.ran = True
-
-        agent = MyAgent()
-        agent.run()
-        assert agent.ran is True
-
-    def test_custom_agent_can_override_name(self):
-        """Verify custom agent can set custom name."""
-
-        class CustomNameAgent(BaseAgent):
-            name = "custom_name"
-
-        agent = CustomNameAgent()
-        assert agent.name == "custom_name"
+    def test_returns_same_instance(self):
+        """Verify get_registry returns singleton."""
+        r1 = get_registry()
+        r2 = get_registry()
+        assert r1 is r2

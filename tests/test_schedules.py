@@ -2,7 +2,7 @@
 Tests for ScheduleConfig and scheduling utilities.
 """
 
-from contextworker.schedules import ScheduleConfig, DEFAULT_SCHEDULES
+from contextworker.schedules import DEFAULT_SCHEDULES, ScheduleConfig
 
 
 class TestScheduleConfig:
@@ -50,9 +50,7 @@ class TestDefaultSchedules:
 
     def test_harvester_schedule_exists(self):
         """Verify harvester schedule is defined."""
-        harvester = next(
-            (s for s in DEFAULT_SCHEDULES if s.schedule_id == "harvester-daily"), None
-        )
+        harvester = next((s for s in DEFAULT_SCHEDULES if s.schedule_id == "harvester-daily"), None)
         assert harvester is not None
         assert harvester.workflow_name == "HarvestWorkflow"
         assert harvester.task_queue == "harvest-tasks"

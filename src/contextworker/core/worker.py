@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 async def get_temporal_client(host: str = None) -> Client:
-    """Get Temporal client connection."""
+    """Get Temporal client connection (host from config if not provided)."""
     if host is None:
-        host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+        from ..config import get_config
 
+        host = get_config().temporal_host
     return await Client.connect(host)
 
 
@@ -102,5 +103,32 @@ async def run_workers(
 
     logger.info(f"--- Starting {len(workers)} worker(s) ---")
 
+    # Register in Redis for service discovery
+    heartbeat_task = None
+    try:
+        from contextcore import register_service
+
+        instance_name = os.getenv("WORKER_INSTANCE_NAME", "default")
+        temporal_addr = temporal_host or os.getenv("TEMPORAL_HOST", "localhost:7233")
+        tenants_raw = os.getenv("WORKER_TENANTS", "")
+        tenants = [t.strip() for t in tenants_raw.split(",") if t.strip()] if tenants_raw else []
+
+        heartbeat_task = await register_service(
+            service="worker",
+            instance=instance_name,
+            endpoint=temporal_addr,
+            tenants=tenants,
+            metadata={
+                "queues": list(queues.keys()),
+                "worker_count": len(workers),
+            },
+        )
+    except Exception as e:
+        logger.debug(f"Service discovery registration skipped: {e}")
+
     # Run all workers concurrently
-    await asyncio.gather(*[w.run() for w in workers])
+    try:
+        await asyncio.gather(*[w.run() for w in workers])
+    finally:
+        if heartbeat_task:
+            heartbeat_task.cancel()

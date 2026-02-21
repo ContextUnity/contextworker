@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
+from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
 from temporalio.client import (
@@ -37,10 +37,54 @@ from temporalio.client import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ScheduleConfig:
+    """Configuration for a scheduled Temporal workflow."""
+
+    schedule_id: str
+    workflow_name: str
+    workflow_class: Any  # Workflow type (or None for late binding)
+    task_queue: str
+    cron: str
+    args: Optional[List[Any]] = None
+    description: str = ""
+
+
+# Default schedule definitions — consumed by worker bootstrap
+DEFAULT_SCHEDULES: List[ScheduleConfig] = [
+    ScheduleConfig(
+        schedule_id="harvester-daily",
+        workflow_name="HarvestWorkflow",
+        workflow_class=None,
+        task_queue="harvest-tasks",
+        cron="0 6 * * *",
+        description="Daily product harvest at 06:00 UTC",
+    ),
+    ScheduleConfig(
+        schedule_id="gardener-every-5min",
+        workflow_name="GardenerWorkflow",
+        workflow_class=None,
+        task_queue="gardener-tasks",
+        cron="*/5 * * * *",
+        description="Product enrichment every 5 minutes",
+    ),
+    ScheduleConfig(
+        schedule_id="retention-daily",
+        workflow_name="RetentionWorkflow",
+        workflow_class=None,
+        task_queue="retention-tasks",
+        cron="0 3 * * *",
+        description="Daily episodic memory retention cleanup at 03:00 UTC",
+    ),
+]
+
+
 async def get_temporal_client(host: str = None) -> Client:
-    """Get Temporal client."""
+    """Get Temporal client (host from config if not provided)."""
     if host is None:
-        host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+        from contextworker.config import get_config
+
+        host = get_config().temporal_host
     return await Client.connect(host)
 
 
@@ -106,9 +150,7 @@ async def list_schedules(
         schedules.append(
             {
                 "id": schedule.id,
-                "workflow": schedule.info.action.workflow
-                if schedule.info.action
-                else None,
+                "workflow": schedule.info.action.workflow if schedule.info.action else None,
             }
         )
 
@@ -228,6 +270,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "ScheduleConfig",
+    "DEFAULT_SCHEDULES",
     "get_temporal_client",
     "create_schedule",
     "list_schedules",

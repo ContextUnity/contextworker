@@ -2,8 +2,9 @@
 Tests for WorkerService gRPC service.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from contextworker.service import WorkerService
 
 
@@ -34,7 +35,7 @@ class TestWorkerServiceGetClient:
         """Verify client connects on first call."""
         service = WorkerService()
 
-        with patch("contextworker.service.Client") as mock_client_class:
+        with patch("temporalio.client.Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.connect = AsyncMock(return_value=mock_client)
 
@@ -48,7 +49,7 @@ class TestWorkerServiceGetClient:
         """Verify client is reused on subsequent calls."""
         service = WorkerService()
 
-        with patch("contextworker.service.Client") as mock_client_class:
+        with patch("temporalio.client.Client") as mock_client_class:
             mock_client = AsyncMock()
             mock_client_class.connect = AsyncMock(return_value=mock_client)
 

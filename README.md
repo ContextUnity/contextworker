@@ -82,7 +82,7 @@ unit = ContextUnit(
 │                    (The "Store" — Domain Logic)                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │  • Defines harvester workflows/activities                           │
-│  • Defines sync workflows (Horoshop, Prom)                          │
+│  • Defines sync workflows (external channels)                        │
 │  • Product catalog and taxonomy                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```

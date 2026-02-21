@@ -7,7 +7,7 @@ Provides utilities for running Temporal workers:
 
 Usage:
     from contextworker import get_registry, run_workers
-    
+
     registry = get_registry()
     registry.register(
         name="harvest",
@@ -15,21 +15,21 @@ Usage:
         workflows=[HarvestWorkflow],
         activities=[fetch_products, save_products],
     )
-    
+
     await run_workers()
 """
 
 __version__ = "0.1.0"
 
+from .config import WorkerConfig, get_config
 from .core import (
     WorkerRegistry,
-    get_registry,
     create_worker,
+    get_registry,
     run_workers,
 )
 from .core.worker import get_temporal_client
-from .config import WorkerConfig, get_config
-from .schedules import create_schedule, list_schedules, delete_schedule
+from .schedules import create_schedule, delete_schedule, list_schedules
 
 __all__ = [
     "__version__",
