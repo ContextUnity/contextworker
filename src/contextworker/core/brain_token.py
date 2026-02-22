@@ -13,30 +13,28 @@ Usage::
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 from contextcore.permissions import Permissions
-from contextcore.tokens import ContextToken
+from contextcore.tokens import mint_service_token
 
 __all__ = ["get_brain_service_token"]
 
+_PERMISSIONS = (
+    Permissions.BRAIN_READ,
+    Permissions.BRAIN_WRITE,
+    Permissions.MEMORY_READ,
+    Permissions.MEMORY_WRITE,
+    Permissions.TRACE_WRITE,
+)
 
-@lru_cache(maxsize=1)
-def get_brain_service_token() -> ContextToken:
+
+def get_brain_service_token():
     """Return a cached ContextToken for Worker → Brain calls.
 
     Grants the minimal set of permissions needed by the Worker:
     - brain:read / brain:write — episodic memory, knowledge ops
     - memory:read / memory:write — entity memory, fact upsert
     - trace:write — sub-agent step recording
+
+    Token has a 1-hour TTL (managed by ``mint_service_token``).
     """
-    return ContextToken(
-        token_id="worker-brain-service",
-        permissions=(
-            Permissions.BRAIN_READ,
-            Permissions.BRAIN_WRITE,
-            Permissions.MEMORY_READ,
-            Permissions.MEMORY_WRITE,
-            Permissions.TRACE_WRITE,
-        ),
-    )
+    return mint_service_token("worker-brain-service", permissions=_PERMISSIONS)

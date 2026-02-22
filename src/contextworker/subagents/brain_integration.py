@@ -14,14 +14,14 @@ if TYPE_CHECKING:
 from .isolation import IsolationContext
 from .types import SubAgentDataType, SubAgentResult
 
-# Try to import BrainClient from contextcore
+# Try to import SmartBrainClient from contextcore
 try:
-    from contextcore import BrainClient
+    from contextcore import SmartBrainClient
 
     BRAIN_AVAILABLE = True
 except ImportError:
     BRAIN_AVAILABLE = False
-    BrainClient = None
+    SmartBrainClient = None
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,10 @@ class BrainIntegration:
             token: Optional ContextToken for authorization
         """
         if not BRAIN_AVAILABLE:
-            logger.warning("BrainClient not available, Brain integration disabled")
+            logger.warning("SmartBrainClient not available, Brain integration disabled")
             self.brain_client = None
         else:
-            self.brain_client = BrainClient(host=brain_endpoint, mode="grpc", token=token)
+            self.brain_client = SmartBrainClient(tenant_id=None, host=brain_endpoint, token=token)
 
     async def record_subagent_step(
         self,

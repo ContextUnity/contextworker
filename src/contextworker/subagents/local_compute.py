@@ -47,8 +47,8 @@ class LocalComputeManager:
                 if response.status_code == 200:
                     models = response.json().get("models", [])
                     return any(m.get("name", "").startswith(model_name) for m in models)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Ollama model %s check failed: %s", model_name, e)
         return False
 
     async def _check_vllm(self) -> bool:
@@ -62,8 +62,8 @@ class LocalComputeManager:
                     timeout=2.0,
                 )
                 return response.status_code == 200
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("vLLM check failed: %s", e)
         return False
 
     async def _check_rlm(self) -> bool:

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import grpc
-from contextcore import ContextUnit, extract_token_from_grpc_metadata, get_context_unit_logger
 
-# Import generated protobuf stubs
-try:
-    from contextcore import context_unit_pb2, worker_pb2_grpc
-except ImportError:
-    try:
-        from contextcore import context_unit_pb2, worker_pb2_grpc
-    except ImportError:
-        worker_pb2_grpc = None
-        context_unit_pb2 = None
-
+# Import generated protobuf stubs — fail-closed: service MUST NOT start
+# without gRPC contracts (Secure by Default).
+from contextcore import (
+    ContextUnit,
+    context_unit_pb2,
+    extract_token_from_grpc_metadata,
+    get_context_unit_logger,
+    worker_pb2_grpc,
+)
 from contextcore.exceptions import SecurityError
 from contextcore.security import validate_safe_url
 
@@ -30,7 +28,7 @@ def parse_unit(request) -> ContextUnit:
     return ContextUnit.from_protobuf(request)
 
 
-class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc else object):
+class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
     """gRPC service for ContextWorker.
 
     Handles workflow triggers and sub-agent execution via ContextUnit protocol.
@@ -80,7 +78,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
             unit = parse_unit(request)
             token = extract_token_from_grpc_metadata(context)
 
-            # Validate token for write operation
+            # Validate token — fail-closed: no token = deny when security enabled
             if token:
                 if token.is_expired():
                     context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
@@ -94,15 +92,15 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
                         grpc.StatusCode.PERMISSION_DENIED,
                         f"Token cannot write to SecurityScopes: {unit.security.write}",
                     )
-            elif unit.security:
-                # Security scopes present but no token - deny in production
+            else:
+                # Fail-closed: no token at all — reject when security enabled
                 from contextcore.config import get_core_config
 
                 config = get_core_config()
                 if config.security.enabled:
                     context.abort(
                         grpc.StatusCode.UNAUTHENTICATED,
-                        "Security scopes present but no ContextToken provided",
+                        "No ContextToken provided — fail-closed (security enabled)",
                     )
 
             workflow_type = unit.payload.get("workflow_type")
@@ -242,7 +240,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
             unit = parse_unit(request)
             token = extract_token_from_grpc_metadata(context)
 
-            # Validate token for read operation
+            # Validate token — fail-closed: no token = deny when security enabled
             if token:
                 if token.is_expired():
                     context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
@@ -255,6 +253,15 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
                     context.abort(
                         grpc.StatusCode.PERMISSION_DENIED,
                         f"Token cannot read from SecurityScopes: {unit.security.read}",
+                    )
+            else:
+                from contextcore.config import get_core_config
+
+                config = get_core_config()
+                if config.security.enabled:
+                    context.abort(
+                        grpc.StatusCode.UNAUTHENTICATED,
+                        "No ContextToken provided — fail-closed (security enabled)",
                     )
 
             workflow_id = unit.payload.get("workflow_id")
@@ -348,7 +355,7 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
             unit = parse_unit(request)
             token = extract_token_from_grpc_metadata(context)
 
-            # Validate token for execute operation
+            # Validate token — fail-closed: no token = deny when security enabled
             if token:
                 if token.is_expired():
                     context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
@@ -361,6 +368,15 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer if worker_pb2_grpc els
                     context.abort(
                         grpc.StatusCode.PERMISSION_DENIED,
                         f"Token cannot write to SecurityScopes: {unit.security.write}",
+                    )
+            else:
+                from contextcore.config import get_core_config
+
+                config = get_core_config()
+                if config.security.enabled:
+                    context.abort(
+                        grpc.StatusCode.UNAUTHENTICATED,
+                        "No ContextToken provided — fail-closed (security enabled)",
                     )
 
             code = unit.payload.get("code")

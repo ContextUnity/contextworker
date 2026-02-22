@@ -114,7 +114,7 @@ async def run_workers(
         tenants = [t.strip() for t in tenants_raw.split(",") if t.strip()] if tenants_raw else []
 
         heartbeat_task = await register_service(
-            service="worker",
+            service="worker-temporal",
             instance=instance_name,
             endpoint=temporal_addr,
             tenants=tenants,
