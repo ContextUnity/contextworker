@@ -76,6 +76,14 @@ DEFAULT_SCHEDULES: List[ScheduleConfig] = [
         cron="0 3 * * *",
         description="Daily episodic memory retention cleanup at 03:00 UTC",
     ),
+    ScheduleConfig(
+        schedule_id="scrum-master-daily",
+        workflow_name="ScrumMasterWorkflow",
+        workflow_class=None,
+        task_queue="scrum-master-tasks",
+        cron="0 9 * * *",
+        description="Daily project summary via ContextRouter and Plane issues",
+    ),
 ]
 
 

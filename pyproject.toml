@@ -1,9 +1,9 @@
 [project]
 name = "contextworker"
-version = "0.5.0"
+version = "0.5.1"
 description = "The Hands of ContextUnity — Temporal-based durable workflow execution, background jobs, and scheduled task infrastructure"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = "==3.13.*"
 authors = [
     { name = "Pylypchuk Oleksii", email = "oleksii.pylypchuk@tuta.com" },
 ]

@@ -6,7 +6,6 @@ Configures interceptors, security, TLS, and graceful shutdown.
 from __future__ import annotations
 
 import asyncio
-import signal
 
 import grpc
 
@@ -25,7 +24,7 @@ async def serve() -> None:
         load_shared_config_from_env,
         setup_logging,
     )
-    from contextcore.security import get_security_interceptors, shield_status
+    from contextcore.security import get_security_interceptors
 
     config = load_shared_config_from_env()
     setup_logging(config=config, service_name="contextworker")
@@ -37,15 +36,9 @@ async def serve() -> None:
     interceptors = list(get_security_interceptors())
     interceptors.append(WorkerPermissionInterceptor())
 
-    server = grpc.aio.server(interceptors=interceptors)
-
-    # Log security status
-    sec = shield_status()
-    sec_log = svc_logger.info if sec["security_enabled"] else svc_logger.warning
-    sec_log(
-        "Security: enabled=%s, shield=%s",
-        sec["security_enabled"],
-        "active" if sec["shield_active"] else "not installed",
+    server = grpc.aio.server(
+        interceptors=interceptors,
+        options=(("grpc.so_reuseport", 1 if config.grpc_reuse_port else 0),),
     )
 
     # Register Worker Service
@@ -57,51 +50,11 @@ async def serve() -> None:
 
     port = get_config().worker_port
 
-    from contextcore.grpc_utils import create_server_credentials
+    from contextcore.grpc_utils import graceful_shutdown, start_grpc_server
 
-    tls_creds = create_server_credentials()
-    if tls_creds:
-        server.add_secure_port(f"[::]:{port}", tls_creds)
-        svc_logger.info("Worker Service starting on :%s with TLS", port)
-    else:
-        server.add_insecure_port(f"[::]:{port}")
-        svc_logger.info("Worker Service starting on :%s (ContextUnit Protocol)", port)
-    await server.start()
+    heartbeat_task = await start_grpc_server(server, "worker", port)
 
-    # Register in Redis for service discovery
-    import os
-
-    from contextcore import register_service
-
-    instance_name = os.getenv("WORKER_INSTANCE_NAME", "default")
-    tenants_raw = os.getenv("WORKER_TENANTS", "")
-    tenants = [t.strip() for t in tenants_raw.split(",") if t.strip()] if tenants_raw else []
-
-    heartbeat_task = await register_service(
-        service="worker",
-        instance=instance_name,
-        endpoint=f"localhost:{port}",
-        tenants=tenants,
-        metadata={"port": int(port)},
-    )
-
-    # Graceful shutdown on SIGINT/SIGTERM
-    loop = asyncio.get_running_loop()
-    stop_event = asyncio.Event()
-
-    def _shutdown_handler():
-        svc_logger.info("Shutdown signal received, stopping Worker...")
-        stop_event.set()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _shutdown_handler)
-
-    await stop_event.wait()
-    svc_logger.info("Stopping gRPC server (5s grace)...")
-    await server.stop(grace=5)
-    if heartbeat_task:
-        heartbeat_task.cancel()
-    svc_logger.info("Worker server stopped.")
+    await graceful_shutdown(server, "Worker", heartbeat_task=heartbeat_task)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@
 python = "3.13"
 uv = "latest"
 
+env_shell_expand = true
+
 [env]
 _.file = { path = ".env", tools = true }
 PYTHON = "$(mise which python)"
@@ -38,7 +40,7 @@ run = "mise run lint && mise run test"
 # Server Commands
 # =============================================================================
 
-[tasks.serve]
+[tasks.worker]
 description = "Start Worker gRPC service (default mode)"
 run = "uv run python -m contextworker"
 
@@ -46,7 +48,7 @@ run = "uv run python -m contextworker"
 description = "Start Worker gRPC service in dev mode"
 run = "uv run python -m contextworker"
 
-[tasks.worker]
+[tasks.temporal]
 description = "Start Temporal worker (all workflows)"
 run = "uv run python -m contextworker --temporal"
 

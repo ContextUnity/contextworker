@@ -93,20 +93,30 @@ class WorkerRegistry:
     def discover_plugins(self) -> None:
         """Discover and register modules from installed packages.
 
-        Looks for 'modules' package (from ContextCommerce) and calls
-        its register_all() function.
+        Discovery sources (in order):
+        1. WORKER_MODULES env var — comma-separated Python import paths
+        2. contextcommerce.modules — if contextcommerce is installed
+        3. contextworker.jobs — native Worker jobs
         """
         if self._discovered:
             return
 
         self._discovered = True
 
-        # Known module packages to try
+        # Base packages — only real importable Python packages
         KNOWN_PACKAGES = [
-            "modules",  # When running from Commerce dir
-            "contextcommerce.modules",  # When pip installed
+            "contextcommerce.modules",  # Commerce modules (pip/uv installed)
+            "contextworker.jobs",  # Native Worker jobs
         ]
 
+        # Prepend dynamic modules from env (highest priority)
+        import os
+
+        if env_modules := os.getenv("WORKER_MODULES"):
+            custom = [m.strip() for m in env_modules.split(",") if m.strip()]
+            KNOWN_PACKAGES = custom + KNOWN_PACKAGES
+
+        discovered_any = False
         for package in KNOWN_PACKAGES:
             try:
                 import importlib
@@ -114,12 +124,15 @@ class WorkerRegistry:
                 mod = importlib.import_module(package)
                 if hasattr(mod, "register_all"):
                     mod.register_all(self)
-                    logger.info(f"Discovered modules from: {package}")
-                    return  # Found one, stop looking
+                    logger.info("Discovered modules from: %s", package)
+                    discovered_any = True
             except ImportError:
                 continue
 
-        logger.warning("No module packages found. Worker will have no modules.")
+        if not discovered_any:
+            logger.warning(
+                "No module packages found. Add contextcommerce to Worker's dependencies or set WORKER_MODULES env var."
+            )
 
 
 # Global registry instance

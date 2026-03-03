@@ -91,45 +91,45 @@ logger = logging.getLogger(__name__)
 @register("myagent")
 class MyAgent(BaseAgent):
     """Polls for pending items and processes them."""
-    
+
     name = "myagent"
-    
+
     def __init__(self, config: dict = None):
         super().__init__(config)
         self.poll_interval = config.get("poll_interval", 60)
-    
+
     async def run(self):
         """Main polling loop."""
         logger.info(f"Starting {self.name} agent")
-        
+
         while self._running:
             try:
                 # 1. Poll for work
                 items = await self.poll_for_work()
-                
+
                 if items:
                     logger.info(f"Found {len(items)} items to process")
-                    
+
                     # 2. Process items
                     for item in items:
                         await self.process_item(item)
-                
+
                 # 3. Wait before next poll
                 await asyncio.sleep(self.poll_interval)
-                
+
             except Exception as e:
                 logger.error(f"Error in {self.name}: {e}")
                 await asyncio.sleep(self.poll_interval)
-    
+
     async def poll_for_work(self) -> list:
         """Query for pending items."""
         # Import domain models here to avoid circular imports
         from contextcommerce.models import PendingItem
-        
+
         return await PendingItem.objects.filter(
             status="pending"
         ).values_list("id", flat=True)[:100]
-    
+
     async def process_item(self, item_id: str):
         """Process a single item."""
         # Your processing logic
@@ -184,7 +184,7 @@ class MyWorkflowInput:
     item_ids: list[str]
 
 
-@dataclass  
+@dataclass
 class MyWorkflowResult:
     processed: int
     failed: int
@@ -214,7 +214,7 @@ async def process_batch(items: list[dict]) -> dict:
 @workflow.defn
 class MyWorkflow:
     """Durable workflow for batch processing."""
-    
+
     @workflow.run
     async def run(self, input: MyWorkflowInput) -> MyWorkflowResult:
         # Step 1: Fetch items
@@ -223,11 +223,11 @@ class MyWorkflow:
             input.item_ids,
             start_to_close_timeout=timedelta(minutes=5),
         )
-        
+
         # Step 2: Process in batches
         batch_size = 50
         total_processed, total_failed = 0, 0
-        
+
         for i in range(0, len(items), batch_size):
             batch = items[i:i + batch_size]
             result = await workflow.execute_activity(
@@ -241,7 +241,7 @@ class MyWorkflow:
             )
             total_processed += result["processed"]
             total_failed += result["failed"]
-        
+
         return MyWorkflowResult(
             processed=total_processed,
             failed=total_failed,
@@ -255,7 +255,7 @@ Update `src/contextworker/service.py`:
 ```python
 elif workflow_type == "myworkflow":
     from .workflows.myworkflow import MyWorkflow
-    
+
     handle = await client.start_workflow(
         MyWorkflow.run,
         args=[MyWorkflowInput(

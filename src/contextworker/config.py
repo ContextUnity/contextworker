@@ -59,7 +59,25 @@ def get_config() -> WorkerConfig:
     global _config
     if _config is None:
         _config = WorkerConfig()
+        _resolve_endpoints(_config)
     return _config
+
+
+def _resolve_endpoints(cfg: WorkerConfig) -> None:
+    """Resolve service endpoints once at startup (env → Redis → defaults)."""
+    import logging
+
+    from contextcore.discovery import resolve_service_endpoint
+
+    logger = logging.getLogger(__name__)
+
+    cfg.brain_endpoint = resolve_service_endpoint(
+        "brain",
+        configured_host=cfg.brain_endpoint,
+        default_host="localhost:50051",
+    )
+
+    logger.info("Worker service endpoints resolved: brain=%s", cfg.brain_endpoint)
 
 
 __all__ = ["WorkerConfig", "get_config"]
