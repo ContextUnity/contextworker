@@ -7,11 +7,12 @@ Modules are discovered from installed packages (e.g., contextcommerce).
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Type
 
-logger = logging.getLogger(__name__)
+from contextcore import get_context_unit_logger
+
+logger = get_context_unit_logger(__name__)
 
 
 @dataclass
@@ -110,9 +111,10 @@ class WorkerRegistry:
         ]
 
         # Prepend dynamic modules from env (highest priority)
-        import os
 
-        if env_modules := os.getenv("WORKER_MODULES"):
+        from contextworker.config import get_config
+
+        if env_modules := get_config().worker_modules:
             custom = [m.strip() for m in env_modules.split(",") if m.strip()]
             KNOWN_PACKAGES = custom + KNOWN_PACKAGES
 

@@ -23,7 +23,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from contextcore import get_context_unit_logger
+
+from contextworker.schemas import EpisodeDict, RetentionStats
+
+logger = get_context_unit_logger(__name__)
 
 
 async def run_retention(
@@ -34,7 +38,7 @@ async def run_retention(
     distill: bool = False,
     brain_endpoint: str = "brain.contextunity.ts.net:50051",
     dry_run: bool = False,
-) -> dict[str, Any]:
+) -> RetentionStats:
     """Run episodic memory retention cleanup.
 
     Args:
@@ -68,11 +72,13 @@ async def run_retention(
     if total_before == 0:
         return {
             "tenant_id": tenant_id,
+            "retention_days": retention_days,
             "total_before": 0,
             "deleted_count": 0,
             "distilled_facts": 0,
             "duration_ms": 0,
             "dry_run": dry_run,
+            "timestamp": datetime.now().isoformat(),
         }
 
     # 2. Optionally distill facts from old episodes
@@ -142,7 +148,7 @@ async def run_retention(
 async def _distill_episodes(
     *,
     brain: Any,
-    episodes: list[dict],
+    episodes: list[EpisodeDict],
     tenant_id: str,
     dry_run: bool = False,
 ) -> int:
@@ -156,7 +162,7 @@ async def _distill_episodes(
     Returns count of facts distilled.
     """
     # Group by user
-    by_user: dict[str, list[dict]] = {}
+    by_user: dict[str, list[EpisodeDict]] = {}
     for ep in episodes:
         uid = ep.get("user_id", "unknown")
         by_user.setdefault(uid, []).append(ep)
@@ -192,7 +198,7 @@ async def _distill_episodes(
     return fact_count
 
 
-def _extract_facts_simple(episodes: list[dict]) -> dict[str, str]:
+def _extract_facts_simple(episodes: list[EpisodeDict]) -> dict[str, str]:
     """Simple heuristic fact extraction (no LLM).
 
     Extracts basic statistics as facts. LLM-based extraction

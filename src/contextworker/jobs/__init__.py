@@ -1,26 +1,18 @@
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-try:
-    from .scrum_master import ScrumMasterWorkflow
-except ImportError:
-    ScrumMasterWorkflow = None  # type: ignore[assignment, misc]
-    logger.debug("ScrumMasterWorkflow unavailable (missing worker_sdk)")
+from .orchestrator import register_all as register_orchestrator
+from .scrum_master import ScrumMasterWorkflow
 
 
 def register_all(registry):
     """Register all job workflows and activities into the worker registry."""
-    if ScrumMasterWorkflow is None:
-        return
     registry.register(
         name="scrum-master",
         queue="scrum-master-tasks",
         workflows=[ScrumMasterWorkflow],
         activities=[],
     )
+    register_orchestrator(registry)
 
 
 __all__: list[str] = ["ScrumMasterWorkflow", "register_all"]

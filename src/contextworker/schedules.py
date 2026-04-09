@@ -27,6 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
+from contextcore import get_context_unit_logger
 from temporalio.client import (
     Client,
     Schedule,
@@ -34,7 +35,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_context_unit_logger(__name__)
 
 
 @dataclass

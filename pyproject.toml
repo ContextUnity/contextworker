@@ -35,7 +35,7 @@ Issues = "https://github.com/ContextUnity/contextworker/issues"
 where = ["src"]
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]

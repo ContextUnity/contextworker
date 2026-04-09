@@ -37,9 +37,10 @@ class TestWorkerConfig:
         assert config.log_level == "DEBUG"
         assert config.worker_port == 50099
 
-    def test_brain_endpoint_from_env(self, monkeypatch):
-        """CONTEXT_BRAIN_URL env var maps to brain_endpoint."""
-        monkeypatch.setenv("CONTEXT_BRAIN_URL", "brain.remote:50051")
+    def test_worker_config_from_env(self, monkeypatch):
+        """CONTEXTBRAIN_GRPC_URL env var maps to brain_endpoint."""
+        monkeypatch.setenv("CONTEXTBRAIN_GRPC_URL", "brain.remote:50051")
+        monkeypatch.setenv("REDIS_URL", "redis://test:6379/1")
 
         config = WorkerConfig()
         assert config.brain_endpoint == "brain.remote:50051"

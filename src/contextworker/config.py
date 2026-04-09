@@ -7,6 +7,7 @@ All service code must use get_config(); do not use os.getenv for worker settings
 
 from typing import Optional
 
+from contextcore import get_context_unit_logger
 from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
@@ -38,12 +39,24 @@ class WorkerConfig(BaseSettings):
     brain_endpoint: str = Field(
         default="localhost:50051",
         description="ContextBrain gRPC endpoint",
-        validation_alias="CONTEXT_BRAIN_URL",
+        validation_alias="CONTEXTBRAIN_GRPC_URL",
     )
     worker_port: int = Field(
         default=50052,
         description="Worker gRPC port",
         validation_alias="WORKER_PORT",
+    )
+    worker_instance_name: str = Field(
+        default="default",
+        validation_alias="WORKER_INSTANCE_NAME",
+    )
+    worker_tenants: str = Field(
+        default="",
+        validation_alias="WORKER_TENANTS",
+    )
+    worker_modules: str = Field(
+        default="",
+        validation_alias="WORKER_MODULES",
     )
 
     # Logging
@@ -65,11 +78,10 @@ def get_config() -> WorkerConfig:
 
 def _resolve_endpoints(cfg: WorkerConfig) -> None:
     """Resolve service endpoints once at startup (env → Redis → defaults)."""
-    import logging
 
     from contextcore.discovery import resolve_service_endpoint
 
-    logger = logging.getLogger(__name__)
+    logger = get_context_unit_logger(__name__)
 
     cfg.brain_endpoint = resolve_service_endpoint(
         "brain",

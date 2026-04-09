@@ -7,16 +7,15 @@ Creates and runs Temporal workers based on registered modules.
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
 from typing import List, Optional
 
+from contextcore import get_context_unit_logger
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from .registry import get_registry
 
-logger = logging.getLogger(__name__)
+logger = get_context_unit_logger(__name__)
 
 
 async def get_temporal_client(host: str = None) -> Client:
@@ -108,9 +107,13 @@ async def run_workers(
     try:
         from contextcore import register_service
 
-        instance_name = os.getenv("WORKER_INSTANCE_NAME", "default")
-        temporal_addr = temporal_host or os.getenv("TEMPORAL_HOST", "localhost:7233")
-        tenants_raw = os.getenv("WORKER_TENANTS", "")
+        from contextworker.config import get_config
+
+        cfg = get_config()
+
+        instance_name = cfg.worker_instance_name
+        temporal_addr = temporal_host or cfg.temporal_host
+        tenants_raw = cfg.worker_tenants
         tenants = [t.strip() for t in tenants_raw.split(",") if t.strip()] if tenants_raw else []
 
         heartbeat_task = await register_service(

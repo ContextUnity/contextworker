@@ -24,7 +24,6 @@ async def serve() -> None:
         load_shared_config_from_env,
         setup_logging,
     )
-    from contextcore.security import get_security_interceptors
 
     config = load_shared_config_from_env()
     setup_logging(config=config, service_name="contextworker")
@@ -33,8 +32,8 @@ async def serve() -> None:
     # Build interceptor list: security + domain permission checks
     from .interceptors import WorkerPermissionInterceptor
 
-    interceptors = list(get_security_interceptors())
-    interceptors.append(WorkerPermissionInterceptor())
+    interceptors = []
+    interceptors.append(WorkerPermissionInterceptor(shield_url=config.shield_url))
 
     server = grpc.aio.server(
         interceptors=interceptors,

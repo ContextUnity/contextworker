@@ -10,7 +10,7 @@ for unified enforcement logic. Worker only owns the RPC_PERMISSION_MAP.
 from __future__ import annotations
 
 from contextcore.permissions import Permissions
-from contextcore.security import EnforcementMode, ServicePermissionInterceptor
+from contextcore.security import ServicePermissionInterceptor
 
 # ── RPC → Permission mapping ──────────────────────────────────
 
@@ -18,6 +18,7 @@ RPC_PERMISSION_MAP: dict[str, str] = {
     "StartWorkflow": Permissions.WORKER_EXECUTE,
     "GetTaskStatus": Permissions.WORKER_READ,
     "ExecuteCode": Permissions.WORKER_EXECUTE,
+    "RegisterSchedules": Permissions.WORKER_EXECUTE,
 }
 
 
@@ -29,15 +30,15 @@ class WorkerPermissionInterceptor(ServicePermissionInterceptor):
 
     Usage::
 
-        interceptor = WorkerPermissionInterceptor(enforcement=EnforcementMode.WARN)
+        interceptor = WorkerPermissionInterceptor()
         server = grpc.aio.server(interceptors=[interceptor])
     """
 
-    def __init__(self, *, enforcement: EnforcementMode | None = None) -> None:
+    def __init__(self, *, shield_url: str = "") -> None:
         super().__init__(
             RPC_PERMISSION_MAP,
             service_name="Worker",
-            enforcement=enforcement,
+            shield_url=shield_url,
         )
 
 

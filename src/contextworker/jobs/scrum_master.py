@@ -3,8 +3,7 @@ Scrum Master Agent Workflow.
 Generates project summaries using ContextRouter and ContextBrain.
 """
 
-import logging
-
+from contextcore import get_context_unit_logger
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
@@ -12,7 +11,7 @@ with workflow.unsafe.imports_passed_through():
 
     from contextworker.core.worker_sdk import AgenticWorkflow
 
-logger = logging.getLogger(__name__)
+logger = get_context_unit_logger(__name__)
 
 
 @workflow.defn

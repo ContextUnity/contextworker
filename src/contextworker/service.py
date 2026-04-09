@@ -9,16 +9,12 @@ import grpc
 from contextcore import (
     ContextUnit,
     context_unit_pb2,
-    extract_token_from_grpc_metadata,
     get_context_unit_logger,
     worker_pb2_grpc,
 )
-from contextcore.exceptions import SecurityError
 from contextcore.security import validate_safe_url
 
 from .config import get_config
-from .subagents.executor import SubAgentExecutor
-from .subagents.isolation import IsolationContext
 
 logger = get_context_unit_logger(__name__)
 
@@ -28,10 +24,64 @@ def parse_unit(request) -> ContextUnit:
     return ContextUnit.from_protobuf(request)
 
 
+def _get_verified_token(context):
+    """Get the verified token from VerifiedAuthContext (set by interceptor).
+
+    Always fail-closed: no token = abort UNAUTHENTICATED.
+
+    Returns:
+        ContextToken — verified and non-expired.
+
+    Raises:
+        grpc.RpcError on missing/expired token.
+    """
+    from contextcore.authz.context import get_auth_context
+
+    auth_ctx = get_auth_context()
+    if auth_ctx is not None:
+        return auth_ctx.token
+
+    context.abort(
+        grpc.StatusCode.UNAUTHENTICATED,
+        "No verified auth context found — fail-closed security enforced",
+    )
+
+
+def _authorize_worker(context, token, *, permission: str, rpc_name: str, tenant_id: str | None = None):
+    """Run canonical authorization check for a Worker RPC.
+
+    Args:
+        context: gRPC servicer context (for abort).
+        token: Verified ContextToken.
+        permission: Required permission string.
+        rpc_name: RPC method name (for audit).
+        tenant_id: Target tenant to check binding (optional).
+
+    Raises:
+        grpc.RpcError on authorization failure.
+    """
+    from contextcore.authz import authorize, get_auth_context
+
+    auth_ctx = get_auth_context()
+    decision = authorize(
+        auth_ctx if auth_ctx is not None else token,
+        permission=permission,
+        tenant_id=tenant_id,
+        service="worker",
+        rpc_name=rpc_name,
+    )
+    if decision.denied:
+        context.abort(grpc.StatusCode.PERMISSION_DENIED, decision.reason)
+
+
 class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
     """gRPC service for ContextWorker.
 
     Handles workflow triggers and sub-agent execution via ContextUnit protocol.
+
+    Authorization is enforced at two layers:
+    1. ``WorkerPermissionInterceptor`` — RPC-level permission check
+    2. Handler-level — tenant binding and resource-level checks
     """
 
     def __init__(self, temporal_host: str | None = None, brain_endpoint: str | None = None):
@@ -45,13 +95,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
         self.temporal_host = temporal_host or cfg.temporal_host
         self.brain_endpoint = brain_endpoint or cfg.brain_endpoint
         self._client = None
-
-        from .core.brain_token import get_brain_service_token
-
-        self._executor = SubAgentExecutor(
-            brain_endpoint=self.brain_endpoint,
-            token=get_brain_service_token(),
-        )
 
     async def get_client(self):
         """Get or create Temporal client."""
@@ -76,48 +119,32 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
         """
         try:
             unit = parse_unit(request)
-            token = extract_token_from_grpc_metadata(context)
+            token = _get_verified_token(context)
 
-            # Validate token — fail-closed: no token = deny when security enabled
-            if token:
-                if token.is_expired():
-                    context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
-                if not token.has_permission("worker:execute"):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token lacks 'worker:execute' permission. Permissions: {token.permissions}",
-                    )
-                if unit.security and not token.can_write(unit.security):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token cannot write to SecurityScopes: {unit.security.write}",
-                    )
-            else:
-                # Fail-closed: no token at all — reject when security enabled
-                from contextcore.config import get_core_config
-
-                config = get_core_config()
-                if config.security.enabled:
-                    context.abort(
-                        grpc.StatusCode.UNAUTHENTICATED,
-                        "No ContextToken provided — fail-closed (security enabled)",
-                    )
-
-            workflow_type = unit.payload.get("workflow_type")
             tenant_id = unit.payload.get("tenant_id", "default")
+            _authorize_worker(
+                context,
+                token,
+                permission="worker:execute",
+                rpc_name="StartWorkflow",
+                tenant_id=tenant_id,
+            )
 
-            # Validate tenant access if token is present
-            if token and not token.can_access_tenant(tenant_id):
+            # Unit-level scope check
+            if unit.security and not token.can_write(unit.security):
                 context.abort(
                     grpc.StatusCode.PERMISSION_DENIED,
-                    f"Token not authorized for tenant '{tenant_id}'. "
-                    f"Allowed tenants: {list(token.allowed_tenants) or 'none'}",
+                    f"Token cannot write to SecurityScopes: {unit.security.write}",
                 )
+
+            workflow_type = unit.payload.get("workflow_type")
 
             # Get Temporal client
             client = await self.get_client()
 
             if workflow_type == "harvest":
+                from contextcore.exceptions import SecurityError
+
                 from contextworker.workflows import HarvesterImportWorkflow
 
                 raw_url = unit.payload.get("url")
@@ -135,62 +162,19 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     id=f"harvest-{unit.unit_id}",
                     task_queue="harvester-tasks",
                 )
-            elif workflow_type == "subagent":
-                subagent_id = unit.payload.get("subagent_id")
-                task = unit.payload.get("task") or {}
-                agent_type = unit.payload.get("agent_type", "task_executor")
-                config = unit.payload.get("config") or {}
-                isolation_context_data = unit.payload.get("isolation_context") or {}
-                isolation_context = IsolationContext.from_dict(isolation_context_data)
 
-                if not subagent_id:
-                    context.abort(
-                        grpc.StatusCode.INVALID_ARGUMENT,
-                        "subagent_id is required for workflow_type=subagent",
-                    )
-
-                # Execute sub-agent immediately via executor path.
-                # Temporal orchestration for sub-agents can be added later.
-                execution_result = await self._executor.execute_subagent(
-                    subagent_id=subagent_id,
-                    task=task,
-                    agent_type=agent_type,
-                    isolation_context=isolation_context,
-                    config=config,
-                    unit=unit,
-                    token=token,
-                )
-
-                response_unit = ContextUnit(
-                    payload={
-                        "workflow_id": subagent_id,
-                        "run_id": None,
-                        "status": execution_result.get("status", "completed"),
-                        "result": execution_result.get("result"),
-                        "error": execution_result.get("error"),
-                    },
-                    trace_id=unit.trace_id,
-                    provenance=list(unit.provenance) + ["worker:start_workflow:subagent"],
-                )
-
-                if context_unit_pb2:
-                    return response_unit.to_protobuf(context_unit_pb2)
-                return response_unit.to_protobuf()
             else:
-                # Generic workflow - use workflow_type as workflow class name
-                logger.warning(f"Unknown workflow type: {workflow_type}, creating placeholder")
-                # For now, return error for unknown types
-                error_unit = ContextUnit(
-                    payload={
-                        "error": f"Unknown workflow type: {workflow_type}",
-                        "workflow_id": None,
-                    },
-                    trace_id=unit.trace_id,
-                    provenance=list(unit.provenance) + ["worker:start_workflow:error"],
+                task_queue = unit.payload.get("task_queue", f"{tenant_id}-tasks")
+                workflow_args = unit.payload.get("args", [])
+
+                logger.info(f"Starting generic workflow '{workflow_type}' on queue '{task_queue}'")
+
+                handle = await client.start_workflow(
+                    workflow_type,
+                    args=workflow_args,
+                    id=f"{workflow_type}-{unit.unit_id}",
+                    task_queue=task_queue,
                 )
-                if context_unit_pb2:
-                    return error_unit.to_protobuf(context_unit_pb2)
-                return error_unit.to_protobuf()
 
             # Create response unit
             response_unit = ContextUnit(
@@ -200,7 +184,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     "status": "started",
                 },
                 trace_id=unit.trace_id,
-                provenance=list(unit.provenance) + ["worker:start_workflow"],
             )
 
             if context_unit_pb2:
@@ -217,9 +200,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     "error_type": type(e).__name__,
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
-                provenance=(list(unit.provenance) + ["worker:start_workflow:error"])
-                if "unit" in locals()
-                else ["worker:start_workflow:error"],
             )
             if context_unit_pb2:
                 return error_unit.to_protobuf(context_unit_pb2)
@@ -238,31 +218,21 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
         """
         try:
             unit = parse_unit(request)
-            token = extract_token_from_grpc_metadata(context)
+            token = _get_verified_token(context)
 
-            # Validate token — fail-closed: no token = deny when security enabled
-            if token:
-                if token.is_expired():
-                    context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
-                if not token.has_permission("worker:read"):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token lacks 'worker:read' permission. Permissions: {token.permissions}",
-                    )
-                if unit.security and not token.can_read(unit.security):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token cannot read from SecurityScopes: {unit.security.read}",
-                    )
-            else:
-                from contextcore.config import get_core_config
+            _authorize_worker(
+                context,
+                token,
+                permission="worker:read",
+                rpc_name="GetTaskStatus",
+            )
 
-                config = get_core_config()
-                if config.security.enabled:
-                    context.abort(
-                        grpc.StatusCode.UNAUTHENTICATED,
-                        "No ContextToken provided — fail-closed (security enabled)",
-                    )
+            # Unit-level scope check
+            if unit.security and not token.can_read(unit.security):
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED,
+                    f"Token cannot read from SecurityScopes: {unit.security.read}",
+                )
 
             workflow_id = unit.payload.get("workflow_id")
             if not workflow_id:
@@ -313,7 +283,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
             response_unit = ContextUnit(
                 payload=payload,
                 trace_id=unit.trace_id,
-                provenance=list(unit.provenance) + ["worker:get_task_status"],
             )
 
             if context_unit_pb2:
@@ -330,9 +299,76 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     "error_type": type(e).__name__,
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
-                provenance=(list(unit.provenance) + ["worker:get_task_status:error"])
-                if "unit" in locals()
-                else ["worker:get_task_status:error"],
+            )
+            if context_unit_pb2:
+                return error_unit.to_protobuf(context_unit_pb2)
+            return error_unit.to_protobuf()
+
+    async def RegisterSchedules(self, request, context):
+        """Register project schedules into Temporal.
+
+        Request payload:
+            - project_id: Project identifier
+            - tenant_id: Tenant identifier
+            - schedules: List of schedule dictionaries
+
+        Response payload:
+            - status: "ok"
+            - registered_count: Number of schedules registered
+        """
+        try:
+            unit = parse_unit(request)
+            token = _get_verified_token(context)
+
+            _authorize_worker(
+                context,
+                token,
+                permission="worker:execute",
+                rpc_name="RegisterSchedules",
+            )
+
+            project_id = unit.payload.get("project_id")
+            tenant_id = unit.payload.get("tenant_id")
+            schedules = unit.payload.get("schedules", [])
+
+            if not project_id or not tenant_id:
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "project_id and tenant_id are required")
+
+            client = await self.get_client()
+
+            from contextworker.schedules import ScheduleConfig, create_schedule
+
+            registered_count = 0
+            for sched_data in schedules:
+                try:
+                    config = ScheduleConfig(**sched_data)
+                    await create_schedule(client, config, tenant_id=tenant_id)
+                    registered_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to register schedule {sched_data.get('id')}: {e}")
+
+            response_unit = ContextUnit(
+                payload={
+                    "status": "ok",
+                    "registered_count": registered_count,
+                },
+                trace_id=unit.trace_id,
+            )
+
+            if context_unit_pb2:
+                return response_unit.to_protobuf(context_unit_pb2)
+            return response_unit.to_protobuf()
+
+        except Exception as e:
+            logger.error(f"RegisterSchedules failed: {e}", exc_info=True)
+            from uuid import uuid4
+
+            error_unit = ContextUnit(
+                payload={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+                trace_id=unit.trace_id if "unit" in locals() else uuid4(),
             )
             if context_unit_pb2:
                 return error_unit.to_protobuf(context_unit_pb2)
@@ -353,31 +389,21 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
         """
         try:
             unit = parse_unit(request)
-            token = extract_token_from_grpc_metadata(context)
+            token = _get_verified_token(context)
 
-            # Validate token — fail-closed: no token = deny when security enabled
-            if token:
-                if token.is_expired():
-                    context.abort(grpc.StatusCode.UNAUTHENTICATED, "Token expired")
-                if not token.has_permission("worker:execute"):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token lacks 'worker:execute' permission. Permissions: {token.permissions}",
-                    )
-                if unit.security and not token.can_write(unit.security):
-                    context.abort(
-                        grpc.StatusCode.PERMISSION_DENIED,
-                        f"Token cannot write to SecurityScopes: {unit.security.write}",
-                    )
-            else:
-                from contextcore.config import get_core_config
+            _authorize_worker(
+                context,
+                token,
+                permission="worker:execute",
+                rpc_name="ExecuteCode",
+            )
 
-                config = get_core_config()
-                if config.security.enabled:
-                    context.abort(
-                        grpc.StatusCode.UNAUTHENTICATED,
-                        "No ContextToken provided — fail-closed (security enabled)",
-                    )
+            # Unit-level scope check
+            if unit.security and not token.can_write(unit.security):
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED,
+                    f"Token cannot write to SecurityScopes: {unit.security.write}",
+                )
 
             code = unit.payload.get("code")
             if not code:
@@ -394,7 +420,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     "stderr": "ExecuteCode not yet implemented",
                 },
                 trace_id=unit.trace_id,
-                provenance=list(unit.provenance) + ["worker:execute_code:not_implemented"],
             )
 
             if context_unit_pb2:
@@ -411,9 +436,6 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                     "error_type": type(e).__name__,
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
-                provenance=(list(unit.provenance) + ["worker:execute_code:error"])
-                if "unit" in locals()
-                else ["worker:execute_code:error"],
             )
             if context_unit_pb2:
                 return error_unit.to_protobuf(context_unit_pb2)

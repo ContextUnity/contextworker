@@ -17,6 +17,8 @@ import asyncio
 import logging
 import sys
 
+from contextcore import get_context_unit_logger
+
 
 def setup_logging(level: str = "INFO"):
     """Setup logging configuration."""
@@ -54,7 +56,7 @@ def main():
     )
 
     args = parser.parse_args()
-    logger = logging.getLogger(__name__)
+    logger = get_context_unit_logger(__name__)
 
     if args.temporal:
         # --- Temporal worker mode ---
