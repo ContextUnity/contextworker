@@ -2,7 +2,7 @@
 
 ## purpose
 
-Defines a generic skill contract for running Gardener-style enrichment tasks through ContextWorker.
+Defines a generic skill contract for running Gardener-style enrichment tasks through contextunity.worker.
 
 ## constraints
 

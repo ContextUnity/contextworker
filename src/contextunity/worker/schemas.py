@@ -1,4 +1,4 @@
-"""Centralized schemas for ContextWorker."""
+"""Centralized schemas for cu.worker."""
 
 from typing import Any, TypedDict
 

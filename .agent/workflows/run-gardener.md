@@ -2,7 +2,7 @@
 
 ## objective
 
-Execute a generic Gardener enrichment workflow through ContextWorker runtime.
+Execute a generic Gardener enrichment workflow through contextunity.worker runtime.
 
 ## checklist
 

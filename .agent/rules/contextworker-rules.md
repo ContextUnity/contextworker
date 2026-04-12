@@ -1,4 +1,4 @@
-# contextworker agent rules
+# ContextWorker agent rules
 
 - keep service workflows project-agnostic
 - require typed contracts for workflow input/output

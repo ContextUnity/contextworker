@@ -1,4 +1,4 @@
-"""gRPC server bootstrap for ContextWorker.
+"""gRPC server bootstrap for cu.worker.
 
 Configures interceptors, security, TLS, and graceful shutdown.
 """
@@ -10,24 +10,24 @@ import asyncio
 import grpc
 
 # Fail-closed: service MUST NOT start without gRPC contracts.
-from contextcore import get_context_unit_logger, worker_pb2_grpc
+from contextunity.core import get_contextunit_logger, worker_pb2_grpc
 
 from .config import get_config
 
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 async def serve() -> None:
     """Start the gRPC server for Worker Service."""
-    from contextcore import (
-        get_context_unit_logger,
+    from contextunity.core import (
+        get_contextunit_logger,
         load_shared_config_from_env,
         setup_logging,
     )
 
     config = load_shared_config_from_env()
-    setup_logging(config=config, service_name="contextworker")
-    svc_logger = get_context_unit_logger(__name__)
+    setup_logging(config=config, service_name="contextunity.worker")
+    svc_logger = get_contextunit_logger(__name__)
 
     # Build interceptor list: security + domain permission checks
     from .interceptors import WorkerPermissionInterceptor
@@ -49,7 +49,7 @@ async def serve() -> None:
 
     port = get_config().worker_port
 
-    from contextcore.grpc_utils import graceful_shutdown, start_grpc_server
+    from contextunity.core.grpc_utils import graceful_shutdown, start_grpc_server
 
     heartbeat_task = await start_grpc_server(server, "worker", port)
 

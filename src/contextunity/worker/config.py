@@ -1,5 +1,5 @@
 """
-Configuration for ContextWorker.
+Configuration for cu.worker.
 
 Single entry: .env is loaded only via this module (pydantic_settings env_file).
 All service code must use get_config(); do not use os.getenv for worker settings.
@@ -7,13 +7,13 @@ All service code must use get_config(); do not use os.getenv for worker settings
 
 from typing import Optional
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
 from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
 class WorkerConfig(BaseSettings):
-    """Configuration for ContextWorker.
+    """Configuration for cu.worker.
 
     Single entry: only this config loads .env (service's own). All code must use get_config().
     """
@@ -38,8 +38,8 @@ class WorkerConfig(BaseSettings):
     # Service endpoints (env names match start script / project .env)
     brain_endpoint: str = Field(
         default="localhost:50051",
-        description="ContextBrain gRPC endpoint",
-        validation_alias="CONTEXTBRAIN_GRPC_URL",
+        description="contextunity.brain gRPC endpoint",
+        validation_alias="CU_BRAIN_GRPC_URL",
     )
     worker_port: int = Field(
         default=50052,
@@ -57,6 +57,11 @@ class WorkerConfig(BaseSettings):
     worker_modules: str = Field(
         default="",
         validation_alias="WORKER_MODULES",
+    )
+    worker_engine: str = Field(
+        default="temporal",
+        description="Execution engine: 'temporal' (default) or 'huey' (local)",
+        validation_alias="WORKER_ENGINE",
     )
 
     # Logging
@@ -79,9 +84,9 @@ def get_config() -> WorkerConfig:
 def _resolve_endpoints(cfg: WorkerConfig) -> None:
     """Resolve service endpoints once at startup (env → Redis → defaults)."""
 
-    from contextcore.discovery import resolve_service_endpoint
+    from contextunity.core.discovery import resolve_service_endpoint
 
-    logger = get_context_unit_logger(__name__)
+    logger = get_contextunit_logger(__name__)
 
     cfg.brain_endpoint = resolve_service_endpoint(
         "brain",

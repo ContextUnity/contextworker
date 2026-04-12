@@ -1,16 +1,16 @@
-"""gRPC interceptor for ContextWorker permission enforcement.
+"""gRPC interceptor for cu.worker permission enforcement.
 
 Maps each Worker RPC method to the exact permission required
 and validates the ContextToken carries that permission.
 
-Delegates to ``contextcore.security.ServicePermissionInterceptor``
+Delegates to ``cu.core.security.ServicePermissionInterceptor``
 for unified enforcement logic. Worker only owns the RPC_PERMISSION_MAP.
 """
 
 from __future__ import annotations
 
-from contextcore.permissions import Permissions
-from contextcore.security import ServicePermissionInterceptor
+from contextunity.core.permissions import Permissions
+from contextunity.core.security import ServicePermissionInterceptor
 
 # ── RPC → Permission mapping ──────────────────────────────────
 

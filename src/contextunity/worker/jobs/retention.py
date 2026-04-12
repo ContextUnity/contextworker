@@ -9,12 +9,12 @@ Schedule: daily at 03:00 UTC (via Temporal or standalone)
 
 Usage:
     # As Temporal activity (from Worker)
-    from contextworker.jobs.retention import run_retention
+    from contextunity.worker.jobs.retention import run_retention
 
     deleted = await run_retention(tenant_id="default", retention_days=30)
 
     # Standalone (CLI)
-    python -m contextworker.jobs.retention --tenant default --days 30
+    python -m cu.worker.jobs.retention --tenant default --days 30
 """
 
 from __future__ import annotations
@@ -23,11 +23,10 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
+from contextunity.worker.schemas import EpisodeDict, RetentionStats
 
-from contextworker.schemas import EpisodeDict, RetentionStats
-
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 async def run_retention(
@@ -52,9 +51,8 @@ async def run_retention(
     Returns:
         Dict with stats: deleted_count, distilled_facts, duration_ms.
     """
-    from contextcore import BrainClient
-
-    from contextworker.core.brain_token import get_brain_service_token
+    from contextunity.core import BrainClient
+    from contextunity.worker.core.brain_token import get_brain_service_token
 
     start = datetime.now()
     brain = BrainClient(host=brain_endpoint, mode="grpc", token=get_brain_service_token())

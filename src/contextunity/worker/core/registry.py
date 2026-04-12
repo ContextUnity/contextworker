@@ -2,7 +2,7 @@
 Worker Module Registry.
 
 Handles registration and discovery of worker modules.
-Modules are discovered from installed packages (e.g., contextcommerce).
+Modules are discovered from installed packages (e.g., cu.commerce).
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Type
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
 
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 @dataclass
@@ -96,8 +96,8 @@ class WorkerRegistry:
 
         Discovery sources (in order):
         1. WORKER_MODULES env var — comma-separated Python import paths
-        2. contextcommerce.modules — if contextcommerce is installed
-        3. contextworker.jobs — native Worker jobs
+        2. cu.commerce.modules — if cu.commerce is installed
+        3. cu.worker.jobs — native Worker jobs
         """
         if self._discovered:
             return
@@ -106,13 +106,13 @@ class WorkerRegistry:
 
         # Base packages — only real importable Python packages
         KNOWN_PACKAGES = [
-            "contextcommerce.modules",  # Commerce modules (pip/uv installed)
-            "contextworker.jobs",  # Native Worker jobs
+            "contextunity.commerce.modules",  # Commerce modules (pip/uv installed)
+            "contextunity.worker.jobs",  # Native Worker jobs
         ]
 
         # Prepend dynamic modules from env (highest priority)
 
-        from contextworker.config import get_config
+        from contextunity.worker.config import get_config
 
         if env_modules := get_config().worker_modules:
             custom = [m.strip() for m in env_modules.split(",") if m.strip()]
@@ -133,7 +133,7 @@ class WorkerRegistry:
 
         if not discovered_any:
             logger.warning(
-                "No module packages found. Add contextcommerce to Worker's dependencies or set WORKER_MODULES env var."
+                "No module packages found. Add cu.commerce to Worker's dependencies or set WORKER_MODULES env var."
             )
 
 

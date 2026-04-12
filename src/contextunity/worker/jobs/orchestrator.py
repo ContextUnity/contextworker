@@ -1,5 +1,5 @@
 """
-Generic Orchestration Workflows for ContextWorker.
+Generic Orchestration Workflows for cu.worker.
 
 These workflows provide platform-agnostic execution of Router Graphs and Federated Tools.
 They are triggered by the schedules defined in project manifests.
@@ -11,16 +11,16 @@ import logging
 from datetime import timedelta
 from typing import Any, Dict
 
-from contextcore.sdk.clients.router import RouterClient
+from contextunity.core.sdk.clients.router import RouterClient
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
-    from contextworker.core.registry import WorkerRegistry
+    from contextunity.worker.core.registry import WorkerRegistry
 
 
-@activity.defn(name="contextworker.execute_federated_tool")
+@activity.defn(name="contextunity.worker.execute_federated_tool")
 async def execute_federated_tool(tool_name: str, args: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
-    """Execute a federated tool generically via ContextRouter."""
+    """Execute a federated tool generically via cu.router."""
     activity_logger = logging.getLogger("temporal.activity")
     activity_logger.info(f"Executing federated tool '{tool_name}' for tenant '{tenant_id}'")
 
@@ -53,9 +53,9 @@ class ExecuteToolWorkflow:
         return result
 
 
-@activity.defn(name="contextworker.execute_router_graph")
+@activity.defn(name="contextunity.worker.execute_router_graph")
 async def execute_router_graph(graph_name: str, payload: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
-    """Execute a LangGraph agent generically via ContextRouter."""
+    """Execute a LangGraph agent generically via cu.router."""
     activity_logger = logging.getLogger("temporal.activity")
     activity_logger.info(f"Executing router graph '{graph_name}' for tenant '{tenant_id}'")
 

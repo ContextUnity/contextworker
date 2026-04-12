@@ -2,7 +2,7 @@
 Tests for WorkerRegistry.
 """
 
-from contextworker.core.registry import ModuleConfig, WorkerRegistry, get_registry
+from contextunity.worker.core.registry import ModuleConfig, WorkerRegistry, get_registry
 
 
 class TestWorkerRegistry:

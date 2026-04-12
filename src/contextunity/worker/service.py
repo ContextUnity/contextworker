@@ -1,4 +1,4 @@
-"""WorkerService - gRPC service for ContextWorker."""
+"""WorkerService - gRPC service for cu.worker."""
 
 from __future__ import annotations
 
@@ -6,17 +6,16 @@ import grpc
 
 # Import generated protobuf stubs — fail-closed: service MUST NOT start
 # without gRPC contracts (Secure by Default).
-from contextcore import (
+from contextunity.core import (
     ContextUnit,
-    context_unit_pb2,
-    get_context_unit_logger,
+    contextunit_pb2,
+    get_contextunit_logger,
     worker_pb2_grpc,
 )
-from contextcore.security import validate_safe_url
 
 from .config import get_config
 
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 def parse_unit(request) -> ContextUnit:
@@ -35,7 +34,7 @@ def _get_verified_token(context):
     Raises:
         grpc.RpcError on missing/expired token.
     """
-    from contextcore.authz.context import get_auth_context
+    from contextunity.core.authz.context import get_auth_context
 
     auth_ctx = get_auth_context()
     if auth_ctx is not None:
@@ -60,7 +59,7 @@ def _authorize_worker(context, token, *, permission: str, rpc_name: str, tenant_
     Raises:
         grpc.RpcError on authorization failure.
     """
-    from contextcore.authz import authorize, get_auth_context
+    from contextunity.core.authz import authorize, get_auth_context
 
     auth_ctx = get_auth_context()
     decision = authorize(
@@ -75,7 +74,7 @@ def _authorize_worker(context, token, *, permission: str, rpc_name: str, tenant_
 
 
 class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
-    """gRPC service for ContextWorker.
+    """gRPC service for cu.worker.
 
     Handles workflow triggers and sub-agent execution via ContextUnit protocol.
 
@@ -92,20 +91,22 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
             brain_endpoint: Brain gRPC endpoint (default: brain.contextunity.ts.net:50051)
         """
         cfg = get_config()
-        self.temporal_host = temporal_host or cfg.temporal_host
         self.brain_endpoint = brain_endpoint or cfg.brain_endpoint
-        self._client = None
 
-    async def get_client(self):
-        """Get or create Temporal client."""
-        if self._client is None:
-            from temporalio.client import Client
+        if cfg.worker_engine == "huey":
+            from .engines.huey_engine import HueyEngine
 
-            self._client = await Client.connect(self.temporal_host)
-        return self._client
+            self.engine = HueyEngine()
+            logger.info("Worker is using HueyEngine (Local Mode)")
+        else:
+            from .engines.temporal_engine import TemporalEngine
+
+            self.temporal_host = temporal_host or cfg.temporal_host
+            self.engine = TemporalEngine(self.temporal_host)
+            logger.info("Worker is using TemporalEngine (Production Mode)")
 
     async def StartWorkflow(self, request, context):
-        """Start a durable workflow via Temporal.
+        """Start a durable workflow via Temporal or Huey.
 
         Request payload:
             - workflow_type: "harvest", "gardener", "sync", etc.
@@ -138,56 +139,26 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 )
 
             workflow_type = unit.payload.get("workflow_type")
+            task_queue = unit.payload.get("task_queue", f"{tenant_id}-tasks")
+            workflow_args = unit.payload.get("args", [])
 
-            # Get Temporal client
-            client = await self.get_client()
-
-            if workflow_type == "harvest":
-                from contextcore.exceptions import SecurityError
-
-                from contextworker.workflows import HarvesterImportWorkflow
-
-                raw_url = unit.payload.get("url")
-                if not raw_url:
-                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, "url is required for harvest workflow")
-
-                try:
-                    url = validate_safe_url(raw_url, allow_local=False)
-                except SecurityError as e:
-                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
-
-                handle = await client.start_workflow(
-                    HarvesterImportWorkflow.run,
-                    url,
-                    id=f"harvest-{unit.unit_id}",
-                    task_queue="harvester-tasks",
-                )
-
-            else:
-                task_queue = unit.payload.get("task_queue", f"{tenant_id}-tasks")
-                workflow_args = unit.payload.get("args", [])
-
-                logger.info(f"Starting generic workflow '{workflow_type}' on queue '{task_queue}'")
-
-                handle = await client.start_workflow(
-                    workflow_type,
-                    args=workflow_args,
-                    id=f"{workflow_type}-{unit.unit_id}",
-                    task_queue=task_queue,
-                )
+            # Delegate to selected engine
+            response_payload = await self.engine.start_workflow(
+                unit=unit,
+                workflow_type=workflow_type,
+                tenant_id=tenant_id,
+                task_queue=task_queue,
+                workflow_args=workflow_args,
+            )
 
             # Create response unit
             response_unit = ContextUnit(
-                payload={
-                    "workflow_id": handle.id,
-                    "run_id": handle.result_run_id,
-                    "status": "started",
-                },
+                payload=response_payload,
                 trace_id=unit.trace_id,
             )
 
-            if context_unit_pb2:
-                return response_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return response_unit.to_protobuf(contextunit_pb2)
             return response_unit.to_protobuf()
 
         except Exception as e:
@@ -201,15 +172,15 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
             )
-            if context_unit_pb2:
-                return error_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return error_unit.to_protobuf(contextunit_pb2)
             return error_unit.to_protobuf()
 
     async def GetTaskStatus(self, request, context):
         """Get status of a running workflow/task.
 
         Request payload:
-            - workflow_id: Temporal workflow ID
+            - workflow_id: Temporal/Huey workflow ID
 
         Response payload:
             - status: "running", "completed", "failed"
@@ -238,55 +209,15 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
             if not workflow_id:
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "workflow_id is required")
 
-            # Get Temporal client
-            client = await self.get_client()
-
-            # Get workflow handle
-            handle = client.get_workflow_handle(workflow_id)
-
-            # Get workflow status
-            description = await handle.describe()
-
-            status_map = {
-                "RUNNING": "running",
-                "COMPLETED": "completed",
-                "FAILED": "failed",
-                "CANCELLED": "cancelled",
-                "TERMINATED": "terminated",
-                "CONTINUED_AS_NEW": "running",
-                "TIMED_OUT": "failed",
-            }
-
-            status = status_map.get(description.status.name, "unknown")
-
-            payload = {
-                "workflow_id": workflow_id,
-                "status": status,
-            }
-
-            # Get result if completed
-            if status == "completed":
-                try:
-                    result = await handle.result()
-                    payload["result"] = result
-                except Exception as e:
-                    logger.warning(f"Failed to get workflow result: {e}")
-
-            # Get error if failed
-            if status == "failed":
-                try:
-                    # Try to get failure info
-                    payload["error"] = "Workflow failed"
-                except Exception:
-                    pass
+            payload = await self.engine.get_task_status(workflow_id)
 
             response_unit = ContextUnit(
                 payload=payload,
                 trace_id=unit.trace_id,
             )
 
-            if context_unit_pb2:
-                return response_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return response_unit.to_protobuf(contextunit_pb2)
             return response_unit.to_protobuf()
 
         except Exception as e:
@@ -300,8 +231,8 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
             )
-            if context_unit_pb2:
-                return error_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return error_unit.to_protobuf(contextunit_pb2)
             return error_unit.to_protobuf()
 
     async def RegisterSchedules(self, request, context):
@@ -334,18 +265,9 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
             if not project_id or not tenant_id:
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "project_id and tenant_id are required")
 
-            client = await self.get_client()
-
-            from contextworker.schedules import ScheduleConfig, create_schedule
-
-            registered_count = 0
-            for sched_data in schedules:
-                try:
-                    config = ScheduleConfig(**sched_data)
-                    await create_schedule(client, config, tenant_id=tenant_id)
-                    registered_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to register schedule {sched_data.get('id')}: {e}")
+            registered_count = await self.engine.register_schedules(
+                project_id=project_id, tenant_id=tenant_id, schedules=schedules
+            )
 
             response_unit = ContextUnit(
                 payload={
@@ -355,8 +277,8 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 trace_id=unit.trace_id,
             )
 
-            if context_unit_pb2:
-                return response_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return response_unit.to_protobuf(contextunit_pb2)
             return response_unit.to_protobuf()
 
         except Exception as e:
@@ -370,8 +292,8 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
             )
-            if context_unit_pb2:
-                return error_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return error_unit.to_protobuf(contextunit_pb2)
             return error_unit.to_protobuf()
 
     async def ExecuteCode(self, request, context):
@@ -422,8 +344,8 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 trace_id=unit.trace_id,
             )
 
-            if context_unit_pb2:
-                return response_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return response_unit.to_protobuf(contextunit_pb2)
             return response_unit.to_protobuf()
 
         except Exception as e:
@@ -437,8 +359,8 @@ class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
                 },
                 trace_id=unit.trace_id if "unit" in locals() else uuid4(),
             )
-            if context_unit_pb2:
-                return error_unit.to_protobuf(context_unit_pb2)
+            if contextunit_pb2:
+                return error_unit.to_protobuf(contextunit_pb2)
             return error_unit.to_protobuf()
 
 

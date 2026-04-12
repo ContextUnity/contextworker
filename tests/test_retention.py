@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextworker.jobs.retention import _extract_facts_simple
+from contextunity.worker.jobs.retention import _extract_facts_simple
 
 
 class TestExtractFactsSimple:
@@ -60,7 +60,7 @@ class TestRetentionSchedule:
     """Test retention appears in default schedules."""
 
     def test_retention_schedule_exists(self):
-        from contextworker.schedules import DEFAULT_SCHEDULES
+        from contextunity.worker.schedules import DEFAULT_SCHEDULES
 
         retention = [s for s in DEFAULT_SCHEDULES if "retention" in s.schedule_id]
         assert len(retention) == 1

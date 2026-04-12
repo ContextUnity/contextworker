@@ -2,7 +2,7 @@
 Tests for ScheduleConfig and scheduling utilities.
 """
 
-from contextworker.schedules import DEFAULT_SCHEDULES, ScheduleConfig
+from contextunity.worker.schedules import DEFAULT_SCHEDULES, ScheduleConfig
 
 
 class TestScheduleConfig:

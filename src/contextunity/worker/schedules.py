@@ -1,15 +1,15 @@
 """
-Temporal Schedules utilities for ContextWorker.
+Temporal Schedules utilities for cu.worker.
 
 Provides helpers for creating and managing scheduled workflows.
 
 Usage:
     # CLI
-    python -m contextworker.schedules list
-    python -m contextworker.schedules delete my-schedule-id
+    python -m cu.worker.schedules list
+    python -m cu.worker.schedules delete my-schedule-id
 
     # Python
-    from contextworker.schedules import create_schedule, list_schedules
+    from contextunity.worker.schedules import create_schedule, list_schedules
 
     await create_schedule(
         client=client,
@@ -27,7 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
 from temporalio.client import (
     Client,
     Schedule,
@@ -35,7 +35,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 @dataclass
@@ -83,7 +83,7 @@ DEFAULT_SCHEDULES: List[ScheduleConfig] = [
         workflow_class=None,
         task_queue="scrum-master-tasks",
         cron="0 9 * * *",
-        description="Daily project summary via ContextRouter and Plane issues",
+        description="Daily project summary via cu.router and Plane issues",
     ),
 ]
 
@@ -91,7 +91,7 @@ DEFAULT_SCHEDULES: List[ScheduleConfig] = [
 async def get_temporal_client(host: str = None) -> Client:
     """Get Temporal client (host from config if not provided)."""
     if host is None:
-        from contextworker.config import get_config
+        from contextunity.worker.config import get_config
 
         host = get_config().temporal_host
     return await Client.connect(host)

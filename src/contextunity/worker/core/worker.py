@@ -9,13 +9,13 @@ from __future__ import annotations
 import asyncio
 from typing import List, Optional
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from .registry import get_registry
 
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 async def get_temporal_client(host: str = None) -> Client:
@@ -105,9 +105,8 @@ async def run_workers(
     # Register in Redis for service discovery
     heartbeat_task = None
     try:
-        from contextcore import register_service
-
-        from contextworker.config import get_config
+        from contextunity.core import register_service
+        from contextunity.worker.config import get_config
 
         cfg = get_config()
 

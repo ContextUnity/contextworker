@@ -1,12 +1,12 @@
 """
-ContextWorker - Temporal Worker Infrastructure for ContextUnity.
+cu.worker - Temporal Worker Infrastructure for ContextUnity.
 
 Provides utilities for running Temporal workers:
 - WorkerRegistry: Module registration and discovery
 - create_worker, run_workers: Temporal worker factory
 
 Usage:
-    from contextworker import get_registry, run_workers
+    from contextunity.worker import get_registry, run_workers
 
     registry = get_registry()
     registry.register(

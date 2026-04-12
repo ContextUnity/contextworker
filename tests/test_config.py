@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextworker.config import WorkerConfig, get_config
+from contextunity.worker.config import WorkerConfig, get_config
 
 
 class TestWorkerConfig:
@@ -27,7 +27,7 @@ class TestWorkerConfig:
         monkeypatch.setenv("WORKER_PORT", "50099")
 
         # Reset singleton so fresh config is created
-        import contextworker.config as cfg
+        import contextunity.worker.config as cfg
 
         monkeypatch.setattr(cfg, "_config", None)
 
@@ -38,8 +38,8 @@ class TestWorkerConfig:
         assert config.worker_port == 50099
 
     def test_worker_config_from_env(self, monkeypatch):
-        """CONTEXTBRAIN_GRPC_URL env var maps to brain_endpoint."""
-        monkeypatch.setenv("CONTEXTBRAIN_GRPC_URL", "brain.remote:50051")
+        """CU_BRAIN_GRPC_URL env var maps to brain_endpoint."""
+        monkeypatch.setenv("CU_BRAIN_GRPC_URL", "brain.remote:50051")
         monkeypatch.setenv("REDIS_URL", "redis://test:6379/1")
 
         config = WorkerConfig()
@@ -50,7 +50,7 @@ class TestGetConfig:
     """Test get_config() singleton."""
 
     def test_returns_singleton(self, monkeypatch):
-        import contextworker.config as cfg
+        import contextunity.worker.config as cfg
 
         monkeypatch.setattr(cfg, "_config", None)
 
@@ -59,7 +59,7 @@ class TestGetConfig:
         assert c1 is c2
 
     def test_reset_creates_new(self, monkeypatch):
-        import contextworker.config as cfg
+        import contextunity.worker.config as cfg
 
         monkeypatch.setattr(cfg, "_config", None)
 

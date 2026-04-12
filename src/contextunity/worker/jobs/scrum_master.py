@@ -1,27 +1,26 @@
 """
 Scrum Master Agent Workflow.
-Generates project summaries using ContextRouter and ContextBrain.
+Generates project summaries using cu.router and cu.brain.
 """
 
-from contextcore import get_context_unit_logger
+from contextunity.core import get_contextunit_logger
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
-    from contextcore import context_unit_pb2
+    from contextunity.core import contextunit_pb2
+    from contextunity.worker.core.worker_sdk import AgenticWorkflow
 
-    from contextworker.core.worker_sdk import AgenticWorkflow
-
-logger = get_context_unit_logger(__name__)
+logger = get_contextunit_logger(__name__)
 
 
 @workflow.defn
 class ScrumMasterWorkflow(AgenticWorkflow):
     @workflow.run
-    async def run(self, input_unit: context_unit_pb2.ContextUnit) -> context_unit_pb2.ContextUnit:
+    async def run(self, input_unit: contextunit_pb2.ContextUnit) -> contextunit_pb2.ContextUnit:
         logger.info("Starting ScrumMaster Workflow for %s", input_unit.unit_id)
 
         # 1. Fetch Issues from ContextPlaneSync
-        # 2. Analyze them via ContextRouter
+        # 2. Analyze them via cu.router
         # 3. Post summary to Slack / Telegram
 
         # Example prompt for router

@@ -2,10 +2,9 @@
 Tests for WorkerService gRPC service.
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
-import pytest
-from contextworker.service import WorkerService
+from contextunity.worker.service import WorkerService
 
 
 class TestWorkerServiceInit:
@@ -21,43 +20,23 @@ class TestWorkerServiceInit:
         service = WorkerService(temporal_host="temporal.prod:7233")
         assert service.temporal_host == "temporal.prod:7233"
 
-    def test_client_starts_as_none(self):
-        """Verify client is None initially."""
-        service = WorkerService()
-        assert service._client is None
+    def test_initializes_temporal_engine(self):
+        """Verify Temporal engine initialized by default."""
+        with patch("contextunity.worker.service.get_config") as mock_config:
+            mock_config.return_value.worker_engine = "temporal"
+            mock_config.return_value.temporal_host = "temporal.prod:7233"
+            mock_config.return_value.brain_endpoint = "brain:50051"
 
+            service = WorkerService(temporal_host="temporal.prod:7233")
+            assert hasattr(service, "engine")
+            assert service.temporal_host == "temporal.prod:7233"
 
-class TestWorkerServiceGetClient:
-    """Test WorkerService.get_client() method."""
+    def test_initializes_huey_engine(self):
+        """Verify Huey engine initialized when configured."""
+        with patch("contextunity.worker.service.get_config") as mock_config:
+            mock_config.return_value.worker_engine = "huey"
+            mock_config.return_value.brain_endpoint = "brain:50051"
 
-    @pytest.mark.asyncio
-    async def test_get_client_connects_on_first_call(self):
-        """Verify client connects on first call."""
-        service = WorkerService()
-
-        with patch("temporalio.client.Client") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client_class.connect = AsyncMock(return_value=mock_client)
-
-            result = await service.get_client()
-
-            mock_client_class.connect.assert_called_once_with("localhost:7233")
-            assert result == mock_client
-
-    @pytest.mark.asyncio
-    async def test_get_client_reuses_connection(self):
-        """Verify client is reused on subsequent calls."""
-        service = WorkerService()
-
-        with patch("temporalio.client.Client") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client_class.connect = AsyncMock(return_value=mock_client)
-
-            # First call
-            result1 = await service.get_client()
-            # Second call
-            result2 = await service.get_client()
-
-            # Should only connect once
-            mock_client_class.connect.assert_called_once()
-            assert result1 == result2
+            service = WorkerService()
+            assert hasattr(service, "engine")
+            assert service.engine.__class__.__name__ == "HueyEngine"

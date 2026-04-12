@@ -1,5 +1,5 @@
 [project]
-name = "contextworker"
+name = "contextunity-worker"
 version = "0.6.0"
 description = "The Hands of ContextUnity — Temporal-based durable workflow execution, background jobs, and scheduled task infrastructure"
 readme = "README.md"
@@ -22,14 +22,23 @@ dependencies = [
     "pydantic>=2.6.0",
     "pydantic-settings>=2.12.0",
     "requests>=2.32.5",
-    "contextcore>=0.5.1",
+    "contextunity-core>=0.5.1",
+    "huey>=2.6.0",
 ]
+
+[project.scripts]
+contextworker = "contextunity.worker.cli:app"
 
 [project.urls]
 Homepage = "https://contextworker.dev"
 Documentation = "https://contextworker.dev"
 Repository = "https://github.com/ContextUnity/contextworker"
-Issues = "https://github.com/ContextUnity/contextworker/issues"
+Issues = "https://github.com/ContextUnity/cu/worker/issues"
+
+[project.optional-dependencies]
+redis = [
+    "redis>=5.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,6 +52,6 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.14.14",
-    "contextcore",
+    "contextunity-core",
 ]
 

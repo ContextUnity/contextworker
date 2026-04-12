@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import contextcore.worker_pb2 as worker_pb2
-from contextworker.interceptors import (
+import contextunity.core.worker_pb2 as worker_pb2
+from contextunity.worker.interceptors import (
     RPC_PERMISSION_MAP,
     WorkerPermissionInterceptor,
 )
