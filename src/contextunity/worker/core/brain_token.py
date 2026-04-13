@@ -1,6 +1,6 @@
 """Worker → Brain service token factory.
 
-Thin wrapper over cu.core.tokens.get_brain_service_token().
+Thin wrapper over contextunity.core.tokens.get_brain_service_token().
 """
 
 from __future__ import annotations

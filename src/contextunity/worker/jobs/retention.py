@@ -14,7 +14,7 @@ Usage:
     deleted = await run_retention(tenant_id="default", retention_days=30)
 
     # Standalone (CLI)
-    python -m cu.worker.jobs.retention --tenant default --days 30
+    python -m contextunity.worker.jobs.retention --tenant default --days 30
 """
 
 from __future__ import annotations

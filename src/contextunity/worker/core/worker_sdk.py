@@ -2,7 +2,7 @@
 Agentic Workflow SDK — base class for AI agent workflows.
 
 Provides the execute_agent_loop() helper for workflows that interact
-with cu.router to run agents and tools.
+with contextunity.router to run agents and tools.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ async def _call_router_agent(
     instructions: str,
     input_payload: bytes,
 ) -> bytes:
-    """Activity that calls cu.router to execute an agent.
+    """Activity that calls contextunity.router to execute an agent.
 
     Runs outside the workflow sandbox so it can make gRPC calls.
     Returns serialized ContextUnit bytes.
@@ -38,7 +38,7 @@ async def _call_router_agent(
 
 
 class AgenticWorkflow:
-    """Base class for Temporal workflows that orchestrate cu.router agents.
+    """Base class for Temporal workflows that orchestrate contextunity.router.agents.
 
     Subclass and override ``run()`` with ``@workflow.run``.
 
@@ -61,7 +61,7 @@ class AgenticWorkflow:
         instructions: str,
         input_unit: contextunit_pb2.ContextUnit,
     ) -> contextunit_pb2.ContextUnit:
-        """Execute an agent loop via cu.router.
+        """Execute an agent loop via contextunity.router.
 
         Schedules a Temporal activity that makes the gRPC call to Router,
         keeping the workflow sandbox clean.

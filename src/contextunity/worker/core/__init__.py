@@ -1,5 +1,5 @@
 """
-cu.worker Core - Temporal worker infrastructure.
+contextunity.worker Core - Temporal worker infrastructure.
 
 Provides:
 - WorkerRegistry: Module registration and discovery

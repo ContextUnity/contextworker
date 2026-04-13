@@ -1,5 +1,5 @@
 """
-cu.worker - Temporal Worker Infrastructure for ContextUnity.
+contextunity.worker - Temporal Worker Infrastructure for ContextUnity.
 
 Provides utilities for running Temporal workers:
 - WorkerRegistry: Module registration and discovery

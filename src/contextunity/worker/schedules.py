@@ -1,12 +1,12 @@
 """
-Temporal Schedules utilities for cu.worker.
+Temporal Schedules utilities for contextunity.worker.
 
 Provides helpers for creating and managing scheduled workflows.
 
 Usage:
     # CLI
-    python -m cu.worker.schedules list
-    python -m cu.worker.schedules delete my-schedule-id
+    python -m contextunity.worker.schedules list
+    python -m contextunity.worker.schedules delete my-schedule-id
 
     # Python
     from contextunity.worker.schedules import create_schedule, list_schedules
@@ -83,7 +83,7 @@ DEFAULT_SCHEDULES: List[ScheduleConfig] = [
         workflow_class=None,
         task_queue="scrum-master-tasks",
         cron="0 9 * * *",
-        description="Daily project summary via cu.router and Plane issues",
+        description="Daily project summary via contextunity.router and Plane issues",
     ),
 ]
 

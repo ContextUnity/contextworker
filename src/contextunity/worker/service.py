@@ -1,4 +1,4 @@
-"""WorkerService - gRPC service for cu.worker."""
+"""WorkerService - gRPC service for contextunity.worker."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def _authorize_worker(context, token, *, permission: str, rpc_name: str, tenant_
 
 
 class WorkerService(worker_pb2_grpc.WorkerServiceServicer):
-    """gRPC service for cu.worker.
+    """gRPC service for contextunity.worker.
 
     Handles workflow triggers and sub-agent execution via ContextUnit protocol.
 

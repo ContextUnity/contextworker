@@ -1,6 +1,6 @@
 """
 Scrum Master Agent Workflow.
-Generates project summaries using cu.router and cu.brain.
+Generates project summaries using contextunity.router and contextunity.brain.
 """
 
 from contextunity.core import get_contextunit_logger
@@ -20,7 +20,7 @@ class ScrumMasterWorkflow(AgenticWorkflow):
         logger.info("Starting ScrumMaster Workflow for %s", input_unit.unit_id)
 
         # 1. Fetch Issues from ContextPlaneSync
-        # 2. Analyze them via cu.router
+        # 2. Analyze them via contextunity.router
         # 3. Post summary to Slack / Telegram
 
         # Example prompt for router

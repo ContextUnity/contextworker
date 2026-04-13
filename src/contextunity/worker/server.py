@@ -1,4 +1,4 @@
-"""gRPC server bootstrap for cu.worker.
+"""gRPC server bootstrap for contextunity.worker.
 
 Configures interceptors, security, TLS, and graceful shutdown.
 """

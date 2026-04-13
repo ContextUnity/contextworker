@@ -1,4 +1,4 @@
-"""Task engines for cu.worker."""
+"""Task engines for contextunity.worker."""
 
 from .base import BaseTaskEngine
 from .huey_engine import HueyEngine

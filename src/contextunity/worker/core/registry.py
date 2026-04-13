@@ -2,7 +2,7 @@
 Worker Module Registry.
 
 Handles registration and discovery of worker modules.
-Modules are discovered from installed packages (e.g., cu.commerce).
+Modules are discovered from installed packages (e.g., contextunity.commerce).
 """
 
 from __future__ import annotations
@@ -96,8 +96,8 @@ class WorkerRegistry:
 
         Discovery sources (in order):
         1. WORKER_MODULES env var — comma-separated Python import paths
-        2. cu.commerce.modules — if cu.commerce is installed
-        3. cu.worker.jobs — native Worker jobs
+        2. contextunity.commerce.modules — if contextunity.commerce is installed
+        3. contextunity.worker.jobs — native Worker jobs
         """
         if self._discovered:
             return
@@ -133,7 +133,7 @@ class WorkerRegistry:
 
         if not discovered_any:
             logger.warning(
-                "No module packages found. Add cu.commerce to Worker's dependencies or set WORKER_MODULES env var."
+                "No module packages found. Add contextunity.commerce to Worker's dependencies or set WORKER_MODULES env var."
             )
 
 

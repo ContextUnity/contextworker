@@ -1,5 +1,5 @@
 """
-Configuration for cu.worker.
+Configuration for contextunity.worker.
 
 Single entry: .env is loaded only via this module (pydantic_settings env_file).
 All service code must use get_config(); do not use os.getenv for worker settings.
@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings
 
 
 class WorkerConfig(BaseSettings):
-    """Configuration for cu.worker.
+    """Configuration for contextunity.worker.
 
     Single entry: only this config loads .env (service's own). All code must use get_config().
     """

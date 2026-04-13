@@ -1,5 +1,5 @@
 """
-Generic Orchestration Workflows for cu.worker.
+Generic Orchestration Workflows for contextunity.worker.
 
 These workflows provide platform-agnostic execution of Router Graphs and Federated Tools.
 They are triggered by the schedules defined in project manifests.
@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
 
 @activity.defn(name="contextunity.worker.execute_federated_tool")
 async def execute_federated_tool(tool_name: str, args: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
-    """Execute a federated tool generically via cu.router."""
+    """Execute a federated tool generically via contextunity.router."""
     activity_logger = logging.getLogger("temporal.activity")
     activity_logger.info(f"Executing federated tool '{tool_name}' for tenant '{tenant_id}'")
 
@@ -55,7 +55,7 @@ class ExecuteToolWorkflow:
 
 @activity.defn(name="contextunity.worker.execute_router_graph")
 async def execute_router_graph(graph_name: str, payload: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
-    """Execute a LangGraph agent generically via cu.router."""
+    """Execute a LangGraph agent generically via contextunity.router."""
     activity_logger = logging.getLogger("temporal.activity")
     activity_logger.info(f"Executing router graph '{graph_name}' for tenant '{tenant_id}'")
 
