@@ -21,23 +21,26 @@ async def serve() -> None:
     """Start the gRPC server for Worker Service."""
     from contextunity.core import (
         get_contextunit_logger,
-        load_shared_config_from_env,
         setup_logging,
     )
 
-    config = load_shared_config_from_env()
-    setup_logging(config=config, service_name="contextunity.worker")
+    cfg = get_config()
+    setup_logging(config=cfg, service_name="contextunity.worker")
     svc_logger = get_contextunit_logger(__name__)
 
     # Build interceptor list: security + domain permission checks
     from .interceptors import WorkerPermissionInterceptor
 
-    interceptors = []
-    interceptors.append(WorkerPermissionInterceptor(shield_url=config.shield_url))
+    interceptors: list[grpc.aio.ServerInterceptor] = [
+        WorkerPermissionInterceptor(
+            shield_url=cfg.shield_url,
+            config=cfg,
+        ),
+    ]
 
     server = grpc.aio.server(
         interceptors=interceptors,
-        options=(("grpc.so_reuseport", 1 if config.grpc_reuse_port else 0),),
+        options=(("grpc.so_reuseport", 1 if cfg.grpc_reuse_port else 0),),
     )
 
     # Register Worker Service
@@ -47,11 +50,18 @@ async def serve() -> None:
     worker_pb2_grpc.add_WorkerServiceServicer_to_server(worker_service, server)
     svc_logger.info("Worker Service registered")
 
-    port = get_config().worker_port
+    port = cfg.port
 
     from contextunity.core.grpc_utils import graceful_shutdown, start_grpc_server
 
-    heartbeat_task = await start_grpc_server(server, "worker", port)
+    heartbeat_task = await start_grpc_server(
+        server,
+        "worker",
+        port,
+        host=cfg.host,
+        redis_url=cfg.redis.url,
+        config=cfg,
+    )
 
     await graceful_shutdown(server, "Worker", heartbeat_task=heartbeat_task)
 

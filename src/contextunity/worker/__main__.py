@@ -8,6 +8,7 @@ from .cli import app
 
 
 def main():
+    """Run the Worker CLI application."""
     app(sys.argv[1:])
 
 

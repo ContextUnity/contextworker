@@ -2,7 +2,7 @@
 Tests for WorkerRegistry.
 """
 
-from contextunity.worker.core.registry import ModuleConfig, WorkerRegistry, get_registry
+from contextunity.worker.core.registry import WorkerRegistry, get_registry
 
 
 class TestWorkerRegistry:
@@ -17,6 +17,9 @@ class TestWorkerRegistry:
         assert mod is not None
         assert mod.name == "test-mod"
         assert mod.queue == "test-queue"
+        assert mod.workflows == []
+        assert mod.activities == []
+        assert mod.enabled is True
 
     def test_register_duplicate_skipped(self):
         """Verify duplicate registration is silently skipped."""
@@ -75,17 +78,6 @@ class TestWorkerRegistry:
 
         mod = registry.get_module("x")
         assert mod.enabled is True
-
-
-class TestModuleConfig:
-    """Test ModuleConfig dataclass."""
-
-    def test_defaults(self):
-        """Verify default values."""
-        mc = ModuleConfig(name="test", queue="q")
-        assert mc.workflows == []
-        assert mc.activities == []
-        assert mc.enabled is True
 
 
 class TestGetRegistry:

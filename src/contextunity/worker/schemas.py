@@ -1,6 +1,10 @@
 """Centralized schemas for contextunity.worker."""
 
-from typing import Any, TypedDict
+from __future__ import annotations
+
+from typing import TypedDict
+
+from contextunity.core.types import JsonDict
 
 
 class RetentionStats(TypedDict):
@@ -22,4 +26,4 @@ class EpisodeDict(TypedDict, total=False):
     id: str
     user_id: str
     created_at: str
-    metadata: dict[str, Any]
+    metadata: JsonDict

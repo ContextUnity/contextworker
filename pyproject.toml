@@ -1,6 +1,6 @@
 [project]
 name = "contextunity-worker"
-version = "0.6.0"
+version = "0.7.0"
 description = "The Hands of ContextUnity — Temporal-based durable workflow execution, background jobs, and scheduled task infrastructure"
 readme = "README.md"
 requires-python = "==3.13.*"
@@ -22,7 +22,7 @@ dependencies = [
     "pydantic>=2.6.0",
     "pydantic-settings>=2.12.0",
     "requests>=2.32.5",
-    "contextunity-core>=0.5.1",
+    "contextunity-core>=0.7.0",
     "huey>=2.6.0",
 ]
 

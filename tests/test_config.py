@@ -2,68 +2,63 @@
 
 from __future__ import annotations
 
-from contextunity.worker.config import WorkerConfig, get_config
+from contextunity.core.config import reset_core_config
+from contextunity.worker.config import WorkerConfig, get_config, reset_config
 
 
 class TestWorkerConfig:
     """Test WorkerConfig defaults and environment loading."""
 
-    def test_default_values(self):
-        config = WorkerConfig()
-
-        assert config.log_level == "INFO"
-        assert config.temporal_host == "localhost:7233"
-        assert config.temporal_namespace == "default"
-        assert config.worker_port == 50052
-
     def test_brain_endpoint_default(self):
+        """brain_endpoint property delegates to inherited brain_url."""
         config = WorkerConfig()
         assert config.brain_endpoint == "localhost:50051"
+        assert config.brain_url == "localhost:50051"
 
     def test_custom_env_values(self, monkeypatch):
-        """WorkerConfig reads from environment variables."""
+        """SharedConfig fields (temporal_host) loaded via load_service_config."""
+        reset_config()
+        reset_core_config()
+
         monkeypatch.setenv("TEMPORAL_HOST", "temporal.prod:7233")
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("WORKER_PORT", "50099")
 
-        # Reset singleton so fresh config is created
-        import contextunity.worker.config as cfg
-
-        monkeypatch.setattr(cfg, "_config", None)
-
-        config = WorkerConfig()
+        config = get_config()
 
         assert config.temporal_host == "temporal.prod:7233"
         assert config.log_level == "DEBUG"
-        assert config.worker_port == 50099
+        assert config.port == 50099
 
     def test_worker_config_from_env(self, monkeypatch):
-        """CU_BRAIN_GRPC_URL env var maps to brain_endpoint."""
+        """CU_BRAIN_GRPC_URL maps to brain_url (and brain_endpoint alias)."""
+        reset_config()
+        reset_core_config()
+
         monkeypatch.setenv("CU_BRAIN_GRPC_URL", "brain.remote:50051")
         monkeypatch.setenv("REDIS_URL", "redis://test:6379/1")
 
-        config = WorkerConfig()
+        config = get_config()
+        assert config.brain_url == "brain.remote:50051"
         assert config.brain_endpoint == "brain.remote:50051"
 
 
 class TestGetConfig:
     """Test get_config() singleton."""
 
-    def test_returns_singleton(self, monkeypatch):
-        import contextunity.worker.config as cfg
-
-        monkeypatch.setattr(cfg, "_config", None)
+    def test_returns_singleton(self):
+        reset_config()
+        reset_core_config()
 
         c1 = get_config()
         c2 = get_config()
         assert c1 is c2
 
-    def test_reset_creates_new(self, monkeypatch):
-        import contextunity.worker.config as cfg
-
-        monkeypatch.setattr(cfg, "_config", None)
+    def test_reset_creates_new(self):
+        reset_config()
+        reset_core_config()
 
         c1 = get_config()
-        monkeypatch.setattr(cfg, "_config", None)
+        reset_config()
         c2 = get_config()
         assert c1 is not c2

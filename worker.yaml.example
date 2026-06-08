@@ -1,0 +1,37 @@
+# =============================================================================
+# ContextWorker - worker.yaml.example
+# =============================================================================
+# Place in .contextunity/worker.yml (project) or /etc/contextunity/worker.yml (system).
+# Values here OVERRIDE .env for non-secret settings.
+# SECRETS MUST stay in .env or systemd-creds - never here.
+# See: packages/core/src/contextunity/core/config/loader.py
+# =============================================================================
+
+# -- Logging ------------------------------------------------------------------
+log_level: INFO
+
+# -- Service Endpoints --------------------------------------------------------
+# brain_url: localhost:50051
+# router_url: localhost:50050
+
+# -- Temporal -----------------------------------------------------------------
+# temporal_host: localhost:7233
+# temporal_namespace: default
+
+# -- Worker-Specific ----------------------------------------------------------
+# port: 50052
+# instance_name: default
+# projects_dir: /home/user/projects
+# default_project: default
+
+# -- Gardener (Commerce Enrichment) ------------------------------------------
+# gardener:
+#   poll_interval_sec: 900
+#   batch_size: 50
+#   parallel_batches: 2
+#   llm_timeout: 30.0
+#   retry_max: 3
+
+# -- Observability ------------------------------------------------------------
+# otel_enabled: false
+# otel_endpoint: http://localhost:4317

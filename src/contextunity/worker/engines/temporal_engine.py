@@ -1,25 +1,32 @@
 """Temporal task execution engine."""
 
-import logging
-from typing import Any
+from __future__ import annotations
 
-from contextunity.core import ContextUnit
-from contextunity.core.exceptions import SecurityError
-from contextunity.core.security import validate_safe_url
+from typing import TYPE_CHECKING, override
+
+from contextunity.core import ContextUnit, get_contextunit_logger
+from contextunity.core.types import ContextUnitPayload
 
 from .base import BaseTaskEngine
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from temporalio.client import Client
+
+logger = get_contextunit_logger(__name__)
 
 
 class TemporalEngine(BaseTaskEngine):
     """Task engine backed by Temporal.io (Production standard)."""
 
-    def __init__(self, temporal_host: str):
+    temporal_host: str
+    _client: Client | None
+
+    def __init__(self, temporal_host: str) -> None:
+        """Initialize the Temporal.io execution engine."""
         self.temporal_host = temporal_host
         self._client = None
 
-    async def _get_client(self):
+    async def _get_client(self) -> Client:
         """Get or create Temporal client."""
         if self._client is None:
             from temporalio.client import Client
@@ -27,44 +34,27 @@ class TemporalEngine(BaseTaskEngine):
             self._client = await Client.connect(self.temporal_host)
         return self._client
 
+    @override
     async def start_workflow(
         self,
         unit: ContextUnit,
         workflow_type: str,
         tenant_id: str,
         task_queue: str,
-        workflow_args: list[Any],
-        **kwargs: Any,
-    ) -> dict[str, Any]:
+        workflow_args: list[object],
+        **kwargs: object,
+    ) -> ContextUnitPayload:
         """Start a durable workflow in Temporal."""
+        _ = tenant_id, kwargs
         client = await self._get_client()
 
-        if workflow_type == "harvest":
-            from contextunity.worker.workflows import HarvesterImportWorkflow
-
-            raw_url = unit.payload.get("url")
-            if not raw_url:
-                raise ValueError("url is required for harvest workflow")
-
-            try:
-                url = validate_safe_url(raw_url, allow_local=False)
-            except SecurityError as e:
-                raise ValueError(str(e))
-
-            handle = await client.start_workflow(
-                HarvesterImportWorkflow.run,
-                url,
-                id=f"harvest-{unit.unit_id}",
-                task_queue="harvester-tasks",
-            )
-        else:
-            logger.info(f"Starting generic workflow '{workflow_type}' on queue '{task_queue}' via Temporal")
-            handle = await client.start_workflow(
-                workflow_type,
-                args=workflow_args,
-                id=f"{workflow_type}-{unit.unit_id}",
-                task_queue=task_queue,
-            )
+        logger.info("Starting workflow '%s' on queue '%s' via Temporal", workflow_type, task_queue)
+        handle = await client.start_workflow(
+            workflow_type,
+            args=workflow_args,
+            id=f"{workflow_type}-{unit.unit_id}",
+            task_queue=task_queue,
+        )
 
         return {
             "workflow_id": handle.id,
@@ -72,14 +62,11 @@ class TemporalEngine(BaseTaskEngine):
             "status": "started",
         }
 
-    async def get_task_status(self, workflow_id: str) -> dict[str, Any]:
+    @override
+    async def get_task_status(self, workflow_id: str) -> ContextUnitPayload:
         """Get workflow status from Temporal."""
         client = await self._get_client()
-
-        # Get workflow handle
         handle = client.get_workflow_handle(workflow_id)
-
-        # Get workflow status
         description = await handle.describe()
 
         status_map = {
@@ -92,37 +79,54 @@ class TemporalEngine(BaseTaskEngine):
             "TIMED_OUT": "failed",
         }
 
-        status = status_map.get(description.status.name, "unknown")
+        raw_status = description.status
+        status = status_map.get(raw_status.name if raw_status else "", "unknown")
 
-        payload: dict[str, Any] = {
+        payload: ContextUnitPayload = {
             "workflow_id": workflow_id,
             "status": status,
         }
 
         if status == "completed":
             try:
-                result = await handle.result()
-                payload["result"] = result
-            except Exception as e:
-                logger.warning(f"Failed to get workflow result: {e}")
+                import json
+
+                payload["result"] = json.dumps(await handle.result(), default=str)
+            except Exception as exc:  # graceful-degrade: status still returned without result
+                logger.warning("Failed to get workflow result: %s", exc)
 
         if status == "failed":
             payload["error"] = "Workflow failed"
 
         return payload
 
-    async def register_schedules(self, project_id: str, tenant_id: str, schedules: list[dict[str, Any]]) -> int:
+    @override
+    async def register_schedules(
+        self,
+        project_id: str,
+        tenant_id: str,
+        schedules: list[dict[str, object]],
+    ) -> int:
         """Register schedules in Temporal."""
+        _ = project_id, tenant_id
         client = await self._get_client()
-        from contextunity.worker.schedules import ScheduleConfig, create_schedule
+        from contextunity.worker.schedules import create_schedule, schedule_config_from_wire
 
         registered_count = 0
         for sched_data in schedules:
             try:
-                config = ScheduleConfig(**sched_data)
-                await create_schedule(client, config, tenant_id=tenant_id)
+                config = schedule_config_from_wire(sched_data)
+                _ = await create_schedule(
+                    client,
+                    schedule_id=config.schedule_id,
+                    workflow=config.workflow_name,
+                    task_queue=config.task_queue,
+                    cron=config.cron,
+                    args=config.args,
+                )
                 registered_count += 1
-            except Exception as e:
-                logger.error(f"Failed to register schedule {sched_data.get('id')}: {e}")
+            except Exception as exc:
+                sched_id = sched_data.get("id")
+                logger.error("Failed to register schedule %s: %s", sched_id, exc)
 
         return registered_count

@@ -1,33 +1,16 @@
 """
 Temporal Schedules utilities for contextunity.worker.
-
 Provides helpers for creating and managing scheduled workflows.
-
-Usage:
-    # CLI
-    python -m contextunity.worker.schedules list
-    python -m contextunity.worker.schedules delete my-schedule-id
-
-    # Python
-    from contextunity.worker.schedules import create_schedule, list_schedules
-
-    await create_schedule(
-        client=client,
-        schedule_id="harvest-daily",
-        workflow=HarvestWorkflow.run,
-        args=["vysota"],
-        task_queue="commerce-tasks",
-        cron="0 6 * * *",
-    )
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional
 
 from contextunity.core import get_contextunit_logger
+from contextunity.core.types import is_object_list
 from temporalio.client import (
     Client,
     Schedule,
@@ -44,51 +27,52 @@ class ScheduleConfig:
 
     schedule_id: str
     workflow_name: str
-    workflow_class: Any  # Workflow type (or None for late binding)
     task_queue: str
     cron: str
-    args: Optional[List[Any]] = None
+    args: list[object] | None = None
     description: str = ""
 
 
-# Default schedule definitions — consumed by worker bootstrap
-DEFAULT_SCHEDULES: List[ScheduleConfig] = [
-    ScheduleConfig(
-        schedule_id="harvester-daily",
-        workflow_name="HarvestWorkflow",
-        workflow_class=None,
-        task_queue="harvest-tasks",
-        cron="0 6 * * *",
-        description="Daily product harvest at 06:00 UTC",
-    ),
-    ScheduleConfig(
-        schedule_id="gardener-every-5min",
-        workflow_name="GardenerWorkflow",
-        workflow_class=None,
-        task_queue="gardener-tasks",
-        cron="*/5 * * * *",
-        description="Product enrichment every 5 minutes",
-    ),
-    ScheduleConfig(
-        schedule_id="retention-daily",
-        workflow_name="RetentionWorkflow",
-        workflow_class=None,
-        task_queue="retention-tasks",
-        cron="0 3 * * *",
-        description="Daily episodic memory retention cleanup at 03:00 UTC",
-    ),
-    ScheduleConfig(
-        schedule_id="scrum-master-daily",
-        workflow_name="ScrumMasterWorkflow",
-        workflow_class=None,
-        task_queue="scrum-master-tasks",
-        cron="0 9 * * *",
-        description="Daily project summary via contextunity.router and Plane issues",
-    ),
-]
+DEFAULT_SCHEDULES: list[ScheduleConfig] = []
 
 
-async def get_temporal_client(host: str = None) -> Client:
+def schedule_config_from_wire(data: dict[str, object]) -> ScheduleConfig:
+    """Build ``ScheduleConfig`` from a manifest/RPC schedule dictionary."""
+    schedule_id = data.get("schedule_id")
+    if not isinstance(schedule_id, str) or not schedule_id:
+        raise ValueError("schedule_id is required")
+
+    workflow_name = data.get("workflow_name")
+    if not isinstance(workflow_name, str) or not workflow_name:
+        raise ValueError("workflow_name is required")
+
+    task_queue = data.get("task_queue")
+    if not isinstance(task_queue, str) or not task_queue:
+        raise ValueError("task_queue is required")
+
+    cron = data.get("cron")
+    if not isinstance(cron, str) or not cron:
+        raise ValueError("cron is required")
+
+    args_raw = data.get("args")
+    args: list[object] | None = None
+    if is_object_list(args_raw):
+        args = list(args_raw)
+
+    description_raw = data.get("description")
+    description = description_raw if isinstance(description_raw, str) else ""
+
+    return ScheduleConfig(
+        schedule_id=schedule_id,
+        workflow_name=workflow_name,
+        task_queue=task_queue,
+        cron=cron,
+        args=args,
+        description=description,
+    )
+
+
+async def get_temporal_client(host: str | None = None) -> Client:
     """Get Temporal client (host from config if not provided)."""
     if host is None:
         from contextunity.worker.config import get_config
@@ -100,30 +84,17 @@ async def get_temporal_client(host: str = None) -> Client:
 async def create_schedule(
     client: Client,
     schedule_id: str,
-    workflow: Callable,
+    workflow: str,
     task_queue: str,
     cron: str,
-    args: Optional[List[Any]] = None,
-    workflow_id: Optional[str] = None,
+    args: list[object] | None = None,
+    workflow_id: str | None = None,
 ) -> str:
-    """Create a Temporal schedule for a workflow.
-
-    Args:
-        client: Temporal client
-        schedule_id: Unique schedule identifier
-        workflow: Workflow run method (e.g., MyWorkflow.run)
-        task_queue: Task queue name
-        cron: Cron expression (e.g., "0 6 * * *" for 6 AM daily)
-        args: Arguments to pass to workflow
-        workflow_id: Optional workflow ID (defaults to schedule_id)
-
-    Returns:
-        Schedule ID
-    """
+    """Create a Temporal schedule for a workflow."""
     wf_id = workflow_id or f"{schedule_id}-scheduled"
 
     try:
-        await client.create_schedule(
+        _ = await client.create_schedule(
             schedule_id,
             Schedule(
                 action=ScheduleActionStartWorkflow(
@@ -137,29 +108,29 @@ async def create_schedule(
                 ),
             ),
         )
-        logger.info(f"Created schedule: {schedule_id}")
+        logger.info("Created schedule: %s", schedule_id)
         return schedule_id
-    except Exception as e:
-        if "already exists" in str(e).lower():
-            logger.warning(f"Schedule {schedule_id} already exists")
+    except Exception as exc:
+        if "already exists" in str(exc).lower():
+            logger.warning("Schedule %s already exists", schedule_id)
             return schedule_id
         raise
 
 
 async def list_schedules(
-    client: Client = None,
-    temporal_host: str = None,
-) -> List[dict]:
+    client: Client | None = None,
+    temporal_host: str | None = None,
+) -> list[dict[str, str | None]]:
     """List all schedules."""
     if client is None:
         client = await get_temporal_client(temporal_host)
 
-    schedules = []
-    async for schedule in client.list_schedules():
+    schedules: list[dict[str, str | None]] = []
+    async for schedule in await client.list_schedules():
         schedules.append(
             {
                 "id": schedule.id,
-                "workflow": schedule.info.action.workflow if schedule.info.action else None,
+                "workflow": None,
             }
         )
 
@@ -168,8 +139,8 @@ async def list_schedules(
 
 async def delete_schedule(
     schedule_id: str,
-    client: Client = None,
-    temporal_host: str = None,
+    client: Client | None = None,
+    temporal_host: str | None = None,
 ) -> bool:
     """Delete a schedule by ID."""
     if client is None:
@@ -178,17 +149,17 @@ async def delete_schedule(
     try:
         handle = client.get_schedule_handle(schedule_id)
         await handle.delete()
-        logger.info(f"Deleted schedule: {schedule_id}")
+        logger.info("Deleted schedule: %s", schedule_id)
         return True
-    except Exception as e:
-        logger.error(f"Failed to delete schedule {schedule_id}: {e}")
+    except Exception as exc:
+        logger.error("Failed to delete schedule %s: %s", schedule_id, exc)
         return False
 
 
 async def pause_schedule(
     schedule_id: str,
-    client: Client = None,
-    temporal_host: str = None,
+    client: Client | None = None,
+    temporal_host: str | None = None,
 ) -> bool:
     """Pause a schedule."""
     if client is None:
@@ -197,17 +168,17 @@ async def pause_schedule(
     try:
         handle = client.get_schedule_handle(schedule_id)
         await handle.pause()
-        logger.info(f"Paused schedule: {schedule_id}")
+        logger.info("Paused schedule: %s", schedule_id)
         return True
-    except Exception as e:
-        logger.error(f"Failed to pause schedule {schedule_id}: {e}")
+    except Exception as exc:
+        logger.error("Failed to pause schedule %s: %s", schedule_id, exc)
         return False
 
 
 async def unpause_schedule(
     schedule_id: str,
-    client: Client = None,
-    temporal_host: str = None,
+    client: Client | None = None,
+    temporal_host: str | None = None,
 ) -> bool:
     """Unpause a schedule."""
     if client is None:
@@ -216,59 +187,72 @@ async def unpause_schedule(
     try:
         handle = client.get_schedule_handle(schedule_id)
         await handle.unpause()
-        logger.info(f"Unpaused schedule: {schedule_id}")
+        logger.info("Unpaused schedule: %s", schedule_id)
         return True
-    except Exception as e:
-        logger.error(f"Failed to unpause schedule {schedule_id}: {e}")
+    except Exception as exc:
+        logger.error("Failed to unpause schedule %s: %s", schedule_id, exc)
         return False
 
 
-# CLI
-async def _cli_main():
-    """CLI entry point."""
-    import argparse
+def _schedule_command(namespace: argparse.Namespace) -> str:
+    """Return the schedule CLI subcommand name."""
+    raw = dict(vars(namespace))
+    command = raw.get("command")
+    if not isinstance(command, str) or not command:
+        raise SystemExit("command is required")
+    return command
 
+
+def _schedule_id(namespace: argparse.Namespace) -> str:
+    """Return the schedule id positional argument."""
+    raw = dict(vars(namespace))
+    schedule_id = raw.get("schedule_id")
+    if not isinstance(schedule_id, str) or not schedule_id:
+        raise SystemExit("schedule_id is required")
+    return schedule_id
+
+
+async def _cli_main() -> None:
+    """CLI entry point."""
     parser = argparse.ArgumentParser(description="Manage Temporal schedules")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # list
-    subparsers.add_parser("list", help="List all schedules")
+    _ = subparsers.add_parser("list", help="List all schedules")
 
-    # delete
     delete_parser = subparsers.add_parser("delete", help="Delete a schedule")
-    delete_parser.add_argument("schedule_id", help="Schedule ID to delete")
+    _ = delete_parser.add_argument("schedule_id", help="Schedule ID to delete")
 
-    # pause
     pause_parser = subparsers.add_parser("pause", help="Pause a schedule")
-    pause_parser.add_argument("schedule_id", help="Schedule ID to pause")
+    _ = pause_parser.add_argument("schedule_id", help="Schedule ID to pause")
 
-    # unpause
     unpause_parser = subparsers.add_parser("unpause", help="Unpause a schedule")
-    unpause_parser.add_argument("schedule_id", help="Schedule ID to unpause")
+    _ = unpause_parser.add_argument("schedule_id", help="Schedule ID to unpause")
 
-    args = parser.parse_args()
+    namespace = parser.parse_args()
+    command = _schedule_command(namespace)
 
     logging.basicConfig(level=logging.INFO)
 
-    if args.command == "list":
-        schedules = await list_schedules()
-        if schedules:
-            for s in schedules:
-                print(f"  {s['id']}: {s['workflow']}")
-        else:
-            print("No schedules found")
+    match command:
+        case "list":
+            schedules = await list_schedules()
+            if schedules:
+                for entry in schedules:
+                    print(f"  {entry['id']}: {entry['workflow']}")
+            else:
+                print("No schedules found")
+        case "delete":
+            _ = await delete_schedule(_schedule_id(namespace))
+        case "pause":
+            _ = await pause_schedule(_schedule_id(namespace))
+        case "unpause":
+            _ = await unpause_schedule(_schedule_id(namespace))
+        case _:
+            raise SystemExit(f"Unknown command: {command!r}")
 
-    elif args.command == "delete":
-        await delete_schedule(args.schedule_id)
 
-    elif args.command == "pause":
-        await pause_schedule(args.schedule_id)
-
-    elif args.command == "unpause":
-        await unpause_schedule(args.schedule_id)
-
-
-def main():
+def main() -> None:
+    """Run the CLI schedule command runner."""
     import asyncio
 
     asyncio.run(_cli_main())
@@ -276,7 +260,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 __all__ = [
     "ScheduleConfig",
@@ -287,4 +270,5 @@ __all__ = [
     "delete_schedule",
     "pause_schedule",
     "unpause_schedule",
+    "schedule_config_from_wire",
 ]

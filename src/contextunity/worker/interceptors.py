@@ -1,16 +1,19 @@
 """gRPC interceptor for contextunity.worker permission enforcement.
-
 Maps each Worker RPC method to the exact permission required
 and validates the ContextToken carries that permission.
-
 Delegates to ``contextunity.core.security.ServicePermissionInterceptor``
 for unified enforcement logic. Worker only owns the RPC_PERMISSION_MAP.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from contextunity.core.permissions import Permissions
 from contextunity.core.security import ServicePermissionInterceptor
+
+if TYPE_CHECKING:
+    from contextunity.worker.config import WorkerConfig
 
 # ── RPC → Permission mapping ──────────────────────────────────
 
@@ -34,11 +37,13 @@ class WorkerPermissionInterceptor(ServicePermissionInterceptor):
         server = grpc.aio.server(interceptors=[interceptor])
     """
 
-    def __init__(self, *, shield_url: str = "") -> None:
+    def __init__(self, *, shield_url: str = "", config: "WorkerConfig | None" = None) -> None:
+        """Initialize the worker permission interceptor."""
         super().__init__(
             RPC_PERMISSION_MAP,
             service_name="Worker",
             shield_url=shield_url,
+            config=config,
         )
 
 

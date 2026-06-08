@@ -1,16 +1,15 @@
 """
 Worker Module Registry.
-
 Handles registration and discovery of worker modules.
-Modules are discovered from installed packages (e.g., contextunity.commerce).
+Modules are discovered from configured or built-in Python packages.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Type
 
 from contextunity.core import get_contextunit_logger
+from contextunity.worker.types import ActivityCallable, WorkflowClass
 
 logger = get_contextunit_logger(__name__)
 
@@ -21,8 +20,8 @@ class ModuleConfig:
 
     name: str
     queue: str
-    workflows: List[Type] = field(default_factory=list)
-    activities: List[Callable] = field(default_factory=list)
+    workflows: list[WorkflowClass] = field(default_factory=list)
+    activities: list[ActivityCallable] = field(default_factory=list)
     enabled: bool = True
 
 
@@ -36,20 +35,21 @@ class WorkerRegistry:
     - activities: list of activity functions
     """
 
-    def __init__(self):
-        self._modules: Dict[str, ModuleConfig] = {}
+    def __init__(self) -> None:
+        """Initialize the worker registry."""
+        self._modules: dict[str, ModuleConfig] = {}
         self._discovered: bool = False
 
     def register(
         self,
         name: str,
         queue: str,
-        workflows: List[Type] = None,
-        activities: List[Callable] = None,
+        workflows: list[WorkflowClass] | None = None,
+        activities: list[ActivityCallable] | None = None,
     ) -> None:
         """Register a worker module."""
         if name in self._modules:
-            logger.warning(f"Module {name} already registered, skipping")
+            logger.warning("Module %s already registered, skipping", name)
             return
 
         self._modules[name] = ModuleConfig(
@@ -58,23 +58,23 @@ class WorkerRegistry:
             workflows=workflows or [],
             activities=activities or [],
         )
-        logger.info(f"Registered module: {name} (queue={queue})")
+        logger.info("Registered module: %s (queue=%s)", name, queue)
 
-    def get_module(self, name: str) -> Optional[ModuleConfig]:
+    def get_module(self, name: str) -> ModuleConfig | None:
         """Get a registered module by name."""
         return self._modules.get(name)
 
-    def get_all_modules(self) -> List[ModuleConfig]:
+    def get_all_modules(self) -> list[ModuleConfig]:
         """Get all registered modules."""
         return list(self._modules.values())
 
-    def get_enabled_modules(self) -> List[ModuleConfig]:
+    def get_enabled_modules(self) -> list[ModuleConfig]:
         """Get all enabled modules."""
         return [m for m in self._modules.values() if m.enabled]
 
-    def get_queues(self) -> Dict[str, List[ModuleConfig]]:
+    def get_queues(self) -> dict[str, list[ModuleConfig]]:
         """Get unique queues and their modules."""
-        queues: Dict[str, List[ModuleConfig]] = {}
+        queues: dict[str, list[ModuleConfig]] = {}
         for module in self.get_enabled_modules():
             if module.queue not in queues:
                 queues[module.queue] = []
@@ -92,40 +92,31 @@ class WorkerRegistry:
             self._modules[name].enabled = True
 
     def discover_plugins(self) -> None:
-        """Discover and register modules from installed packages.
-
-        Discovery sources (in order):
-        1. WORKER_MODULES env var — comma-separated Python import paths
-        2. contextunity.commerce.modules — if contextunity.commerce is installed
-        3. contextunity.worker.jobs — native Worker jobs
-        """
+        """Discover and register modules from installed packages."""
         if self._discovered:
             return
 
         self._discovered = True
 
-        # Base packages — only real importable Python packages
-        KNOWN_PACKAGES = [
-            "contextunity.commerce.modules",  # Commerce modules (pip/uv installed)
-            "contextunity.worker.jobs",  # Native Worker jobs
+        known_packages = [
+            "contextunity.worker.jobs",
         ]
-
-        # Prepend dynamic modules from env (highest priority)
 
         from contextunity.worker.config import get_config
 
         if env_modules := get_config().worker_modules:
             custom = [m.strip() for m in env_modules.split(",") if m.strip()]
-            KNOWN_PACKAGES = custom + KNOWN_PACKAGES
+            known_packages = custom + known_packages
 
         discovered_any = False
-        for package in KNOWN_PACKAGES:
+        for package in known_packages:
             try:
                 import importlib
 
                 mod = importlib.import_module(package)
-                if hasattr(mod, "register_all"):
-                    mod.register_all(self)
+                register_fn = getattr(mod, "register_all", None)
+                if callable(register_fn):
+                    _ = register_fn(self)
                     logger.info("Discovered modules from: %s", package)
                     discovered_any = True
             except ImportError:
@@ -133,12 +124,11 @@ class WorkerRegistry:
 
         if not discovered_any:
             logger.warning(
-                "No module packages found. Add contextunity.commerce to Worker's dependencies or set WORKER_MODULES env var."
+                "No worker modules discovered. Register built-ins or set WORKER_MODULES.",
             )
 
 
-# Global registry instance
-_registry: Optional[WorkerRegistry] = None
+_registry: WorkerRegistry | None = None
 
 
 def get_registry() -> WorkerRegistry:

@@ -10,10 +10,10 @@ Usage:
 
     registry = get_registry()
     registry.register(
-        name="harvest",
-        queue="commerce-tasks",
-        workflows=[HarvestWorkflow],
-        activities=[fetch_products, save_products],
+        name="sync",
+        queue="tenant-a-tasks",
+        workflows=[SyncWorkflow],
+        activities=[sync_records],
     )
 
     await run_workers()

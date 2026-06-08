@@ -57,12 +57,10 @@ class TestExtractFactsSimple:
 
 
 class TestRetentionSchedule:
-    """Test retention appears in default schedules."""
+    """Test retention is not auto-registered as a default schedule."""
 
-    def test_retention_schedule_exists(self):
+    def test_retention_not_present_in_default_schedules(self):
         from contextunity.worker.schedules import DEFAULT_SCHEDULES
 
         retention = [s for s in DEFAULT_SCHEDULES if "retention" in s.schedule_id]
-        assert len(retention) == 1
-        assert retention[0].cron == "0 3 * * *"
-        assert retention[0].task_queue == "retention-tasks"
+        assert retention == []

@@ -45,6 +45,10 @@ run = "mise run lint && mise run test"
 description = "Start Worker gRPC service (default mode)"
 run = "uv run contextworker serve"
 
+[tasks.dev]
+description = "Start Worker gRPC service in dev mode with autoreload"
+run = "uv run watchfiles --filter python 'uv run contextworker serve' src/"
+
 [tasks.temporal]
 description = "Start Temporal worker (all workflows)"
 run = "uv run contextworker temporal"

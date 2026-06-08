@@ -1,126 +1,54 @@
 # ContextWorker — Agent Instructions
 
-Action layer: Temporal workflow execution, gRPC service, sub-agent sandbox, scheduled tasks, and module registry.
+Action layer: Temporal workflow execution, schedule registration, local tool execution, Router graph orchestration, and background job worker.
+
+**Types & payloads:** [docs/architecture/type-boundaries.md](../../docs/architecture/type-boundaries.md)
+**Code quality:** [docs/architecture/code-quality.md](../../docs/architecture/code-quality.md)
 
 ## Entry & Execution
-- **Workspace**: `services/worker/`
-- **Run gRPC**: `uv run python -m contextunity.worker`
-- **Run Temporal**: `uv run python -m contextunity.worker --temporal`
-- **Tests**: `uv run --package contextunity-worker pytest`
-- **Lint**: `uv run ruff check .`
 
-## Code Standards
-You MUST adhere to [Code Standards](../../.agent/skills/code_standards/SKILL.md): 400-line limit, Pydantic strictness, `mise` sync, Ruff compliance.
+Run from monorepo root (`contextunity/`) unless noted.
 
-## Architecture
+| Task | Command |
+|------|---------|
+| Workspace | `services/worker/` |
+| Run gRPC | `uv run python -m contextunity.worker` |
+| Run Temporal | `uv run python -m contextunity.worker --temporal` |
+| Tests | `uv run --package contextunity-worker pytest services/worker/tests` |
+| Lint | `cd services/worker && uv run ruff check src tests` |
+| Types (worker scope) | `uv run basedpyright services/worker/src/contextunity/worker --warnings` |
+| Monorepo gate | `uv run basedpyright --project pyrightconfig.json --warnings` |
+| Engine import guard | `uv run --package contextunity-worker pytest services/worker/tests/test_engine_imports.py -q` |
+| Core guards (shared types) | [type-boundaries.md §8.1](../../docs/architecture/type-boundaries.md) |
 
-```
-src/contextunity/worker/
-├── __main__.py              # Entrypoint
-├── cli.py                   # CLI commands (Typer)
-├── config.py                # WorkerConfig (Pydantic settings)
-├── service.py               # gRPC WorkerService (StartWorkflow, GetTaskStatus, ExecuteCode)
-├── server.py                # gRPC server setup
-├── schedules.py             # Temporal schedule CRUD + CLI
-├── schemas.py               # Request/response schemas
-├── interceptors.py          # gRPC interceptors
-│
-├── core/
-│   ├── registry.py          # WorkerRegistry, ModuleConfig, plugin discovery
-│   ├── worker.py            # Temporal client setup, worker creation
-│   ├── worker_sdk.py        # Worker SDK helpers
-│   └── brain_token.py       # Brain token utilities
-│
-├── engines/                 # Execution backends
-│   ├── base.py              # BaseEngine protocol
-│   ├── temporal_engine.py   # Temporal workflow engine
-│   └── huey_engine.py       # Huey task queue engine
-│
-└── jobs/
-    ├── orchestrator.py      # Job orchestration
-    ├── retention.py         # Data retention policies
-    └── scrum_master.py      # Automated task management
-```
+## Type hardening & skills
 
-## Strict Boundaries
-- **Infrastructure ONLY**: Worker provides Temporal execution, scheduling, agent lifecycle, gRPC service. NO business logic.
-- **Business logic belongs in domain packages**: Commerce harvesting → `contextunity.commerce`, AI enrichment → `contextunity.router`.
-- **ContextUnit Protocol**: All gRPC communication uses `ContextUnit` envelope.
-- **Config-First**: Use `WorkerConfig`. No direct `os.environ`.
-- **Temporal Determinism**: No `datetime.now()`, no raw threading in workflows. Use `workflow.now()`.
+Use `from __future__ import annotations` when annotating with `TYPE_CHECKING` imports (see §8.1). Import envelope types from core — do not redefine.
 
-## Execution Engines
-Worker supports pluggable execution backends via `engines/`:
-- **`TemporalEngine`** — Durable Temporal workflows (production)
-- **`HueyEngine`** — Lightweight Huey task queue (simpler deployments)
+| Trigger | Skill |
+|---------|-------|
+| Typing, JSON/gRPC, ContextUnit payloads, `dict[str, object]`, basedpyright | **`contract-boundaries`** (primary) → **`type-validation`** |
+| Core config / exceptions | `core-contract-change` |
+| Bug / regression | `diagnose` |
+| Implementation loop | `tdd` |
 
-Both implement `BaseEngine` protocol. Selected via configuration.
+Workflow: [/contract-boundaries](../../.agents/workflows/contract-boundaries.md). Monorepo: [AGENTS.md](../../AGENTS.md).
 
-## Configuration
+## Platform Invariants
+Follow `packages/core/AGENTS.md` for proto, config, exception, and token rules. In this service:
+- **Config**: use `SharedConfig` / Worker config models — no bare `os.getenv()` or `os.environ`.
+- **Exceptions**: inherit `contextunity.core.exceptions.ContextUnityError`.
+- **Crypto/tokens**: use `contextunity.core.token_utils` — no inline HMAC or encryption.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TEMPORAL_HOST` | `localhost:7233` | Temporal server address |
-| `TEMPORAL_NAMESPACE` | `default` | Temporal namespace |
-| `WORKER_PORT` | `50053` | gRPC server port |
-| `BRAIN_ENDPOINT` | `localhost:50051` | Brain gRPC endpoint |
-| `LOG_LEVEL` | `INFO` | Log level |
+## Strict Boundaries & Sandboxing
+1. **Infrastructure ONLY**: Worker provides workflow execution, task schedules, and queue management. It MUST NOT contain hardcoded domain business logic. Domain code must register its own workflows dynamically.
+2. **Deterministic Workflows**: All code inside `@workflow.defn` decorated classes MUST be strictly deterministic.
+   - **FORBIDDEN**: `datetime.now()`, `time.sleep()`, raw standard threads, random number generation (`random.random()`), filesystem access, network requests, or importing non-deterministic libraries.
+   - **REQUIRED**: Use `workflow.now()`, `await workflow.sleep()`, and execute non-deterministic actions inside `@activity.defn` functions.
+3. **Pydantic Configurations**: All dynamic schedules and workflow triggers pass configuration parameters validated via Pydantic schemas with `extra="forbid"`.
+4. **ContextUnit Wrapper**: All gRPC triggers must accept inputs wrapped in the `ContextUnit` envelope.
 
-## Dual-Mode Operation
-
-| Mode | Command | Purpose |
-|------|---------|---------|
-| gRPC Service | `python -m contextunity.worker` | Receives workflow triggers from other services |
-| Temporal Worker | `python -m contextunity.worker --temporal` | Executes registered workflows and activities |
-| Specific Modules | `python -m contextunity.worker --temporal --modules harvest gardener` | Run only selected modules |
-
-## Module Registry
-
-```python
-from contextunity.worker.core.registry import WorkerRegistry, ModuleConfig
-
-registry = WorkerRegistry()
-registry.register(ModuleConfig(
-    name="harvest",
-    queue="harvest-tasks",
-    workflows=[HarvestWorkflow],
-    activities=[download_feed, parse_products],
-))
-```
-
-At startup with `--temporal`, the registry discovers modules from installed packages via `discover_plugins()`.
-
-
-## Golden Paths
-
-### Adding a Temporal Workflow
-1. Create `workflows/myworkflow.py` with `@workflow.defn` class and `@activity.defn` functions
-2. Use `@dataclass` for input/output (Temporal serialization)
-3. Register in `service.py` `StartWorkflow` handler with `workflow_type` routing
-4. Register in `WorkerRegistry` with module config
-5. Add tests using `WorkflowEnvironment.start_time_skipping()`
-
-### Adding a Background Agent
-1. Create `agents/myagent.py` with `@register("myagent")` decorated `BaseAgent` subclass
-2. Implement `run()` polling loop with `asyncio.sleep()` interval
-3. Register import in `registry.py` `_load_agents()`
-4. Test with `python -m contextunity.worker --agents myagent`
-
-### Adding a Schedule
-1. Add `ScheduleConfig` to `DEFAULT_SCHEDULES` in `schedules.py`
-2. Create via CLI: `python -m contextunity.worker.schedules create --tenant-id myproject`
-3. Manage: `python -m contextunity.worker.schedules list|pause|trigger|delete`
-
-### Testing Workflows
-```python
-from temporalio.testing import WorkflowEnvironment
-async def test_my_workflow():
-    async with WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(env.client, task_queue="test", workflows=[MyWorkflow], activities=[...]):
-            result = await env.client.execute_workflow(MyWorkflow.run, input, task_queue="test")
-            assert result.processed > 0
-```
-
-## Further Reading
-- [Astro Docs: ContextWorker](../../docs/website/src/content/docs/worker/)
-- [Worker Operations Skill](../../.agent/skills/worker_ops/SKILL.md)
+## Temporal Activity Constraints
+- **Activity Idempotency**: Since activities can fail and be retried, all activities MUST be idempotent (e.g. database upserts, idempotent API calls).
+- **Execution Limits & Timeouts**: Every activity MUST specify an explicit `start_to_close_timeout` or `schedule_to_close_timeout`. Do not use infinite/default timeouts.
+- **Activity Inputs**: Inputs/outputs of workflows and activities must be JSON-serializable dataclasses or Pydantic models.

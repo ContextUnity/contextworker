@@ -7,9 +7,9 @@ Creates and runs Temporal workers based on registered modules.
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
 
 from contextunity.core import get_contextunit_logger
+from contextunity.worker.types import ActivityCallable, WorkflowClass
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -18,7 +18,7 @@ from .registry import get_registry
 logger = get_contextunit_logger(__name__)
 
 
-async def get_temporal_client(host: str = None) -> Client:
+async def get_temporal_client(host: str | None = None) -> Client:
     """Get Temporal client connection (host from config if not provided)."""
     if host is None:
         from ..config import get_config
@@ -30,8 +30,8 @@ async def get_temporal_client(host: str = None) -> Client:
 async def create_worker(
     client: Client,
     queue: str,
-    workflows: List = None,
-    activities: List = None,
+    workflows: list[WorkflowClass] | None = None,
+    activities: list[ActivityCallable] | None = None,
 ) -> Worker:
     """Create a Temporal worker for a specific queue."""
     return Worker(
@@ -43,48 +43,36 @@ async def create_worker(
 
 
 async def run_workers(
-    modules: Optional[List[str]] = None,
-    temporal_host: str = None,
+    modules: list[str] | None = None,
+    temporal_host: str | None = None,
 ) -> None:
-    """Run Temporal workers for specified modules.
-
-    Args:
-        modules: List of module names to run (None = all enabled)
-        temporal_host: Temporal server address
-    """
+    """Run Temporal workers for specified modules."""
     registry = get_registry()
-
-    # Discover plugins before running
     registry.discover_plugins()
 
-    # Filter modules if specified
     if modules:
+        known = {m.name for m in registry.get_all_modules()}
         for name in modules:
-            if name not in [m.name for m in registry.get_all_modules()]:
-                logger.warning(f"Module {name} not found")
+            if name not in known:
+                logger.warning("Module %s not found", name)
 
-    # Get queues and their modules
     queues = registry.get_queues()
 
     if not queues:
         logger.error("No modules registered. Nothing to run.")
         return
 
-    # Connect to Temporal
     client = await get_temporal_client(temporal_host)
 
-    # Create workers per queue
-    workers = []
+    workers: list[Worker] = []
     for queue, queue_modules in queues.items():
-        # Skip if not in requested modules
         if modules:
             queue_modules = [m for m in queue_modules if m.name in modules]
             if not queue_modules:
                 continue
 
-        # Aggregate workflows and activities for this queue
-        workflows = []
-        activities = []
+        workflows: list[WorkflowClass] = []
+        activities: list[ActivityCallable] = []
         for mod in queue_modules:
             workflows.extend(mod.workflows)
             activities.extend(mod.activities)
@@ -92,17 +80,16 @@ async def run_workers(
         if workflows or activities:
             worker = await create_worker(client, queue, workflows, activities)
             workers.append(worker)
-            logger.info(f"Created worker for queue: {queue}")
-            logger.info(f"  Workflows: {[w.__name__ for w in workflows]}")
-            logger.info(f"  Activities: {[a.__name__ for a in activities]}")
+            logger.info("Created worker for queue: %s", queue)
+            logger.info("  Workflows: %s", [w.__name__ for w in workflows])
+            logger.info("  Activities: %s", [a.__name__ for a in activities])
 
     if not workers:
         logger.error("No workers created. Check module configuration.")
         return
 
-    logger.info(f"--- Starting {len(workers)} worker(s) ---")
+    logger.info("--- Starting %d worker(s) ---", len(workers))
 
-    # Register in Redis for service discovery
     heartbeat_task = None
     try:
         from contextunity.core import register_service
@@ -125,12 +112,14 @@ async def run_workers(
                 "worker_count": len(workers),
             },
         )
-    except Exception as e:
-        logger.debug(f"Service discovery registration skipped: {e}")
+    except Exception as exc:  # graceful-degrade: discovery is optional
+        logger.debug("Service discovery registration skipped: %s", exc)
 
-    # Run all workers concurrently
     try:
-        await asyncio.gather(*[w.run() for w in workers])
+        _ = await asyncio.gather(*[w.run() for w in workers])
     finally:
         if heartbeat_task:
-            heartbeat_task.cancel()
+            _ = heartbeat_task.cancel()
+
+
+__all__ = ["create_worker", "get_temporal_client", "run_workers"]

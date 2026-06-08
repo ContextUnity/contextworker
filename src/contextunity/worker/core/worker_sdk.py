@@ -7,6 +7,8 @@ with contextunity.router to run agents and tools.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
@@ -19,7 +21,7 @@ logger = get_contextunit_logger(__name__)
 async def _call_router_agent(
     agent_id: str,
     instructions: str,
-    input_payload: bytes,
+    _input_payload: bytes,
 ) -> bytes:
     """Activity that calls contextunity.router to execute an agent.
 
@@ -28,13 +30,15 @@ async def _call_router_agent(
     """
     from contextunity.core.sdk import RouterClient
 
-    client = RouterClient()
-    response = await client.execute_agent(
-        agent_id=agent_id,
-        instructions=instructions,
-        input_payload=input_payload,
-    )
-    return response
+    async with RouterClient() as client:
+        result = await client.execute_agent(
+            graph_name=agent_id,
+            payload={"instructions": instructions},
+        )
+    # Return serialized response bytes
+    import json
+
+    return json.dumps(dict(result)).encode()
 
 
 class AgenticWorkflow:
@@ -69,7 +73,7 @@ class AgenticWorkflow:
         result_bytes = await workflow.execute_activity(
             _call_router_agent,
             args=[agent_id, instructions, input_unit.SerializeToString()],
-            start_to_close_timeout=workflow.timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=5),
         )
         # Deserialize response bytes via conformant SDK method
         from contextunity.core import ContextUnit

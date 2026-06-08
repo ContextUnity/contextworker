@@ -1,29 +1,14 @@
-"""Episodic memory retention and fact distillation job.
-
-Background job that runs daily to:
-1. Find episodes older than the retention window (default: 30 days)
-2. Optionally distill facts from old episodes via LLM
-3. Delete processed episodes from Brain
-
-Schedule: daily at 03:00 UTC (via Temporal or standalone)
-
-Usage:
-    # As Temporal activity (from Worker)
-    from contextunity.worker.jobs.retention import run_retention
-
-    deleted = await run_retention(tenant_id="default", retention_days=30)
-
-    # Standalone (CLI)
-    python -m contextunity.worker.jobs.retention --tenant default --days 30
-"""
+"""Episodic memory retention and fact distillation job."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Annotated
 
+import typer
 from contextunity.core import get_contextunit_logger
+from contextunity.core.sdk import BrainClient
 from contextunity.worker.schemas import EpisodeDict, RetentionStats
 
 logger = get_contextunit_logger(__name__)
@@ -38,28 +23,18 @@ async def run_retention(
     brain_endpoint: str = "brain.contextunity.ts.net:50051",
     dry_run: bool = False,
 ) -> RetentionStats:
-    """Run episodic memory retention cleanup.
-
-    Args:
-        tenant_id: Tenant to clean up.
-        retention_days: Delete episodes older than this many days.
-        batch_size: Max episodes to process per batch.
-        distill: If True, distill facts from old episodes before deleting.
-        brain_endpoint: Brain gRPC endpoint.
-        dry_run: If True, only report what would be deleted.
-
-    Returns:
-        Dict with stats: deleted_count, distilled_facts, duration_ms.
-    """
-    from contextunity.core import BrainClient
+    """Run episodic memory retention cleanup."""
     from contextunity.worker.core.brain_token import get_brain_service_token
 
     start = datetime.now()
-    brain = BrainClient(host=brain_endpoint, mode="grpc", token=get_brain_service_token())
+    brain = BrainClient(
+        host=brain_endpoint,
+        token=get_brain_service_token(allowed_tenants=(tenant_id,)),
+    )
 
-    # 1. Get stats before
     stats_before = await brain.get_episode_stats(tenant_id=tenant_id)
-    total_before = stats_before.get("total", 0)
+    total_raw = stats_before.get("total", 0)
+    total_before = total_raw if isinstance(total_raw, int) else 0
     logger.info(
         "Retention job started: tenant=%s, retention=%d days, total_episodes=%d",
         tenant_id,
@@ -79,7 +54,6 @@ async def run_retention(
             "timestamp": datetime.now().isoformat(),
         }
 
-    # 2. Optionally distill facts from old episodes
     distilled_count = 0
     processed_ids: list[str] = []
 
@@ -93,29 +67,26 @@ async def run_retention(
         if old_episodes:
             distilled_count = await _distill_episodes(
                 brain=brain,
-                episodes=old_episodes,
+                episodes=list(old_episodes),
                 tenant_id=tenant_id,
                 dry_run=dry_run,
             )
-            processed_ids = [ep["id"] for ep in old_episodes if ep.get("id")]
+            processed_ids = [str(ep.get("id", "")) for ep in old_episodes if ep.get("id")]
             logger.info(
                 "Distilled %d facts from %d episodes",
                 distilled_count,
                 len(old_episodes),
             )
 
-    # 3. Delete old episodes
     deleted_count = 0
     if not dry_run:
         if processed_ids:
-            # Delete only the episodes we've distilled
             deleted_count = await brain.retention_cleanup(
                 tenant_id=tenant_id,
                 older_than_days=retention_days,
                 episode_ids=processed_ids,
             )
         else:
-            # Bulk delete by age
             deleted_count = await brain.retention_cleanup(
                 tenant_id=tenant_id,
                 older_than_days=retention_days,
@@ -123,43 +94,33 @@ async def run_retention(
 
     duration_ms = int((datetime.now() - start).total_seconds() * 1000)
 
-    result = {
-        "tenant_id": tenant_id,
-        "retention_days": retention_days,
-        "total_before": total_before,
-        "deleted_count": deleted_count,
-        "distilled_facts": distilled_count,
-        "duration_ms": duration_ms,
-        "dry_run": dry_run,
-        "timestamp": datetime.now().isoformat(),
-    }
-
     logger.info(
         "Retention job complete: deleted=%d, distilled=%d, duration=%dms",
         deleted_count,
         distilled_count,
         duration_ms,
     )
-    return result
+
+    return RetentionStats(
+        tenant_id=tenant_id,
+        retention_days=retention_days,
+        total_before=total_before,
+        deleted_count=deleted_count,
+        distilled_facts=distilled_count,
+        duration_ms=duration_ms,
+        dry_run=dry_run,
+        timestamp=datetime.now().isoformat(),
+    )
 
 
 async def _distill_episodes(
     *,
-    brain: Any,
+    brain: BrainClient,
     episodes: list[EpisodeDict],
     tenant_id: str,
     dry_run: bool = False,
 ) -> int:
-    """Distill facts from old episodes.
-
-    Groups episodes by user_id, then for each user:
-    - Concatenate episode contents
-    - Extract persistent facts (heuristic for now, LLM later)
-    - Upsert facts into Entity Memory
-
-    Returns count of facts distilled.
-    """
-    # Group by user
+    """Distill facts from old episodes."""
     by_user: dict[str, list[EpisodeDict]] = {}
     for ep in episodes:
         uid = ep.get("user_id", "unknown")
@@ -186,90 +147,78 @@ async def _distill_episodes(
                     user_id=user_id,
                     key=fact_key,
                     value=fact_value,
-                    confidence=0.8,  # Distilled facts have lower confidence
+                    confidence=0.8,
                     source_id=f"retention:{datetime.now().strftime('%Y%m%d')}",
                 )
                 fact_count += 1
-            except Exception as e:
-                logger.warning("Failed to upsert fact %s for %s: %s", fact_key, user_id, e)
+            except Exception as exc:  # graceful-degrade: continue other facts
+                logger.warning("Failed to upsert fact %s for %s: %s", fact_key, user_id, exc)
 
     return fact_count
 
 
 def _extract_facts_simple(episodes: list[EpisodeDict]) -> dict[str, str]:
-    """Simple heuristic fact extraction (no LLM).
-
-    Extracts basic statistics as facts. LLM-based extraction
-    will be added in a future iteration.
-    """
+    """Simple heuristic fact extraction (no LLM)."""
     facts: dict[str, str] = {}
-
-    # Count interactions
     facts["total_interactions"] = str(len(episodes))
 
-    # Date range
     dates = [ep.get("created_at", "") for ep in episodes if ep.get("created_at")]
     if dates:
         facts["first_interaction"] = min(dates)
         facts["last_interaction"] = max(dates)
 
-    # Session count
-    sessions = {ep.get("metadata", {}).get("session_id") for ep in episodes}
-    sessions.discard(None)
+    sessions: set[object] = set()
+    for ep in episodes:
+        metadata = ep.get("metadata")
+        if isinstance(metadata, dict):
+            session_id = metadata.get("session_id")
+            if session_id is not None:
+                sessions.add(session_id)
     if sessions:
         facts["session_count"] = str(len(sessions))
 
     return facts
 
 
-# ── CLI entry point ──
-
-
-async def _cli_main():
+def retention_cli(
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant ID")] = "default",
+    days: Annotated[int, typer.Option("--days", help="Retention days")] = 30,
+    batch: Annotated[int, typer.Option("--batch", help="Batch size")] = 100,
+    distill: Annotated[bool, typer.Option("--distill", help="Distill facts before deleting")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Report only, no deletions")] = False,
+    brain: Annotated[
+        str,
+        typer.Option("--brain", help="Brain endpoint"),
+    ] = "brain.contextunity.ts.net:50051",
+) -> None:
     """CLI entry point for retention job."""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Episodic memory retention cleanup")
-    parser.add_argument("--tenant", default="default", help="Tenant ID")
-    parser.add_argument("--days", type=int, default=30, help="Retention days")
-    parser.add_argument("--batch", type=int, default=100, help="Batch size")
-    parser.add_argument("--distill", action="store_true", help="Distill facts before deleting")
-    parser.add_argument("--dry-run", action="store_true", help="Report only, no deletions")
-    parser.add_argument(
-        "--brain",
-        default="brain.contextunity.ts.net:50051",
-        help="Brain endpoint",
-    )
-
-    args = parser.parse_args()
+    import asyncio
+    import json
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    result = await run_retention(
-        tenant_id=args.tenant,
-        retention_days=args.days,
-        batch_size=args.batch,
-        distill=args.distill,
-        brain_endpoint=args.brain,
-        dry_run=args.dry_run,
+    result = asyncio.run(
+        run_retention(
+            tenant_id=tenant,
+            retention_days=days,
+            batch_size=batch,
+            distill=distill,
+            brain_endpoint=brain,
+            dry_run=dry_run,
+        )
     )
-
-    import json
-
     print(json.dumps(result, indent=2))
 
 
-def main():
-    import asyncio
-
-    asyncio.run(_cli_main())
+def main() -> None:
+    """Run the CLI retention job runner."""
+    typer.run(retention_cli)
 
 
 if __name__ == "__main__":
     main()
-
 
 __all__ = ["run_retention"]
