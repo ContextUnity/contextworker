@@ -89,3 +89,16 @@ class TestRegisterAll:
 
         assert workflow_names == {"ExecuteToolWorkflow", "ExecuteGraphWorkflow"}
         assert activity_names == {"execute_federated_tool", "execute_router_graph"}
+
+
+class TestActivityRetryPolicy:
+    def test_federated_tool_retry_policy_allows_transient_retries(self) -> None:
+        policy = orchestrator._FEDERATED_TOOL_RETRY_POLICY
+        assert policy.maximum_attempts == 3
+        assert policy.initial_interval.total_seconds() == 2
+        assert policy.backoff_coefficient == 2.0
+        assert policy.maximum_interval.total_seconds() == 60
+
+    def test_router_graph_retry_policy_is_non_retrying(self) -> None:
+        policy = orchestrator._ROUTER_GRAPH_RETRY_POLICY
+        assert policy.maximum_attempts == 1

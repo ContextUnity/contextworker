@@ -5,13 +5,15 @@ Single entry: config loaded via load_service_config (env + YAML).
 All service code must use get_config(); do not use os.getenv for worker settings.
 """
 
+from typing import ClassVar
+
 from contextunity.core import get_contextunit_logger
 from contextunity.core.config import (
     ServiceConfig,
     ServiceConfigRegistry,
     load_service_config,
 )
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 
 class WorkerConfig(ServiceConfig):
@@ -23,6 +25,8 @@ class WorkerConfig(ServiceConfig):
 
     Worker-specific fields defined here.
     """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(use_enum_values=True, extra="forbid")
 
     # Temporal
     temporal_namespace: str = Field(

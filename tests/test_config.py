@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 from contextunity.core.config import reset_core_config
 from contextunity.worker.config import WorkerConfig, get_config, reset_config
+from pydantic import ValidationError
 
 
 class TestWorkerConfig:
@@ -41,6 +43,10 @@ class TestWorkerConfig:
         config = get_config()
         assert config.brain_url == "brain.remote:50051"
         assert config.brain_endpoint == "brain.remote:50051"
+
+    def test_rejects_unknown_security_field(self):
+        with pytest.raises(ValidationError, match="tls_require_client_authx"):
+            WorkerConfig.model_validate({"tls_require_client_authx": False})
 
 
 class TestGetConfig:

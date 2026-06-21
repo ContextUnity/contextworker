@@ -13,6 +13,20 @@ from contextunity.core.sdk.types import ToolPayload, ToolResult
 from contextunity.core.types import ContextUnitPayload
 from contextunity.worker.core.registry import WorkerRegistry
 from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
+
+# Federated tools may hit transient upstream/network failures.
+_FEDERATED_TOOL_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=1),
+)
+
+# Router graphs: deterministic failures (unknown graph, validation) must not retry.
+_ROUTER_GRAPH_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=1,
+)
 
 
 @activity.defn(name="contextunity.worker.execute_federated_tool")
@@ -81,7 +95,7 @@ class ExecuteToolWorkflow:
             execute_federated_tool,
             args=[tool_name, tool_args, tenant_id],
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=None,
+            retry_policy=_FEDERATED_TOOL_RETRY_POLICY,
         )
 
 
@@ -104,7 +118,7 @@ class ExecuteGraphWorkflow:
             execute_router_graph,
             args=[graph_name, graph_payload, tenant_id],
             start_to_close_timeout=timedelta(minutes=60),
-            retry_policy=None,
+            retry_policy=_ROUTER_GRAPH_RETRY_POLICY,
         )
 
 

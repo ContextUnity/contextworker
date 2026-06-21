@@ -18,7 +18,7 @@ async def create_local_worker() -> grpc.aio.Server:
     config = get_config()
     shield_url = config.shield_url
     logger.info("Local Worker: shield_url=%s", shield_url or "(disabled)")
-    server = grpc.aio.server(interceptors=[WorkerPermissionInterceptor(shield_url=shield_url)])
+    server = grpc.aio.server(interceptors=[WorkerPermissionInterceptor(shield_url=shield_url, config=config)])
 
     try:
         from pathlib import Path
